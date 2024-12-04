@@ -2,7 +2,7 @@ NAME_PROJECT: SAM-6D
 
 optimizer:
   type : Adam
-  lr   : 0.0001
+  lr   : 0.0007
   betas: [0.5, 0.999]
   eps  : 0.000001
   weight_decay: 0.0
@@ -62,15 +62,17 @@ train_dataset:
   n_sample_observed_point: 2048
   n_sample_model_point: 2048
   n_sample_template_point: 5000
-  min_visib_fract: 0.1
-  min_px_count_visib: 512
+  min_visib_fract: 0.01
+  min_px_count_visib: 3
+  min_pts_count: 3
   shift_range: 0.01
   rgb_mask_flag: True
   dilate_mask: True
+  augment_depth : False
 
 train_dataloader:
-  bs            : 28
-  num_workers   : 24
+  bs            : 196
+  num_workers   : 196
   shuffle       : True
   drop_last     : True
   pin_memory    : False
@@ -85,15 +87,15 @@ test_dataset:
   n_sample_observed_point: 2048
   n_sample_model_point: 1024
   n_sample_template_point: 5000
-  minimum_n_point: 8
+  minimum_n_point: 3
   rgb_mask_flag: True
   seg_filter_score: 0.25
   n_template_view: 42
 
 
 test_dataloader:
-  bs            : 16
-  num_workers   : 16
+  bs            : 64
+  num_workers   : 64
   shuffle       : False
   drop_last     : False
   pin_memory    : False
@@ -102,3 +104,4 @@ test_dataloader:
 rd_seed: 1
 training_epoch: 15
 iters_to_print: 50
+pretrain_dir: checkpoints/sam-6d-pem-base.pth

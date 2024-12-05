@@ -40,6 +40,7 @@ from augmentation_utils import (
     DepthBlurTransform ,
 )
 
+from model_utils import pairwise_distance
 
 class Dataset():
     def __init__(self, cfg, num_img_per_epoch=-1):
@@ -214,23 +215,27 @@ class Dataset():
         if tem1_rgb is None:
             return None
 
-
         # mask
         mask = io_load_masks(open(os.path.join(self.data_dir, path_head+'.mask_visib.json'), 'rb'))[valid_idx]
         if np.sum(mask) == 0:
             return None
-
+        mask_clean = mask.copy()
         ########################################################################################
         # mask augmentation
         if self.dilate_mask and np.random.rand() < 0.5:
             mask = np.array(mask>0).astype(np.uint8)
             mask = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_CROSS, (3,3)), iterations=4)
         ########################################################################################
-
         bbox = get_bbox(mask>0)
         y1,y2,x1,x2 = bbox
         mask = mask[y1:y2, x1:x2]
+        mask_clean = mask_clean[y1:y2, x1:x2]
         # choose = mask.astype(np.float32).flatten().nonzero()[0]
+
+        ################################ DEFINE CLUTTER instead of BG ##################################
+        # clutter is where clean mask is 0, augmented mask is 1 and aug depth is valid
+        clutter = (mask.flatten() > 0) & (mask_clean.flatten() == 0)
+        ################################################################################################
 
         # depth
         depth = load_im(os.path.join(self.data_dir, path_head+'.depth.png')).astype(np.float32)
@@ -247,33 +252,51 @@ class Dataset():
         pts_clean = get_point_cloud_from_depth(depth_clean, K, [y1, y2, x1, x2])
 
         depth = depth[y1:y2, x1:x2]
+        depth_clean = depth_clean[y1:y2, x1:x2]
+
+        # choosing indexes where dpeth and mask are valid
         choose = np.where((depth.flatten() > 0) & (mask.flatten() > 0))[0]
+        choose_clean = np.where((depth_clean.flatten() > 0) & (mask_clean.flatten() > 0))[0]
+
         if len(choose) == 0:
             return None
+
         pts = pts.reshape(-1, 3)[choose, :]
-        pts_clean = pts_clean.reshape(-1, 3)[choose, :]
+        clutter = clutter[choose]
 
-        # ########################################################################################
-        # they try to remove outliers by using a radius which conflicts with depth augmentation.
-        # network should lern to handle outliers and assign them to background.
-        target_pts = (pts - target_t[None, :]) @ target_R
-        tem_pts = np.concatenate([tem1_pts, tem2_pts], axis=0)
-        radius = np.max(np.linalg.norm(tem_pts, axis=1))
-        flag = np.linalg.norm(target_pts, axis=1) < radius * 1.2 # for outlier removal
-        pts = pts[flag]
-        pts_clean = pts_clean[flag]
-        choose = choose[flag]
-        # ########################################################################################
+        pts_clean = pts_clean.reshape(-1, 3)[choose_clean, :]
 
+        # # ########################################################################################
+        # # they try to remove outliers which conflicts with depth augmentation.
+        # # network should lern to handle outliers.
+        # target_pts = (pts - target_t[None, :]) @ target_R
+        # tem_pts = np.concatenate([tem1_pts, tem2_pts], axis=0)
+        # radius = np.max(np.linalg.norm(tem_pts, axis=1))
+        # flag = np.linalg.norm(target_pts, axis=1) < radius * 1.2 # for outlier removal
+        # pts = pts[flag]
+        # choose = choose[flag]
+        # clutter = clutter[flag]
+        # # ########################################################################################
+
+        # up/down sample observed points
         if len(choose) < self.min_pts_count:
             return None
-
         if len(choose) <= self.n_sample_observed_point:
-            choose_idx = np.random.choice(np.arange(len(choose)), self.n_sample_observed_point)
+            choose_idx = np.random.choice(np.arange(len(choose)), self.n_sample_observed_point, replace=True)
         else:
             choose_idx = np.random.choice(np.arange(len(choose)), self.n_sample_observed_point, replace=False)
         choose = choose[choose_idx]
         pts = pts[choose_idx]
+        clutter = clutter[choose_idx]
+
+        # up/down sample clear points
+        if len(choose_clean) < self.min_pts_count:
+            return None
+        if len(choose_clean) <= self.n_sample_observed_point:
+            choose_idx = np.random.choice(np.arange(len(choose_clean)), self.n_sample_observed_point, replace=True)
+        else:
+            choose_idx = np.random.choice(np.arange(len(choose_clean)), self.n_sample_observed_point, replace=False)
+        choose_clean = choose_clean[choose_idx]
         pts_clean = pts_clean[choose_idx]
 
         # rgb
@@ -300,10 +323,16 @@ class Dataset():
         add_t = add_t + 0.001*np.random.randn(pts.shape[0], 3)
         pts = np.add(pts, add_t)
         
+        ####### define occluded points from the templates ##########################################
+        target_pts_clean = (pts_clean - target_t[None, :]) @ target_R
+        tem_pts = np.concatenate([tem1_pts, tem2_pts], axis=0)
+        dis_mat = torch.sqrt(pairwise_distance(target_pts_clean, tem_pts))
+        dis2, label2 = dis_mat.min(1)
+        occluded = (dis2>self.cfg.occluded_dis_thres).float()
+        ############################################################################################
 
         ret_dict = {
             'pts': torch.FloatTensor(pts),
-            'pts_clean': torch.FloatTensor(pts_clean),
             'rgb': torch.FloatTensor(rgb),
             'rgb_choose': torch.IntTensor(rgb_choose).long(),
             'translation_label': torch.FloatTensor(target_t),
@@ -315,6 +344,8 @@ class Dataset():
             'tem2_choose': torch.IntTensor(tem2_choose).long(),
             'tem2_pts': torch.FloatTensor(tem2_pts),
             'K': torch.FloatTensor(K),
+            'clutter': torch.FloatTensor(clutter),
+            'occluded': torch.FloatTensor(occluded),
         }
         return ret_dict
 
@@ -360,7 +391,7 @@ class Dataset():
         # xyz
         choose = mask.astype(np.float32).flatten().nonzero()[0]
         if len(choose) <= self.n_sample_template_point:
-            choose_idx = np.random.choice(np.arange(len(choose)), self.n_sample_template_point)
+            choose_idx = np.random.choice(np.arange(len(choose)), self.n_sample_template_point, replace=True)
         else:
             choose_idx = np.random.choice(np.arange(len(choose)), self.n_sample_template_point, replace=False)
         choose = choose[choose_idx]

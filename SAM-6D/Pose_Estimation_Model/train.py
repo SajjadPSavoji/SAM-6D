@@ -110,6 +110,7 @@ if __name__ == "__main__":
         if hasattr(cfg, 'warmup_iter') and cfg.warmup_iter >0:
             num_iter = num_iter + cfg.warmup_iter
         iters_per_epoch = int(np.floor(num_iter / num_epoch))
+        logger.info("#Warmup Cosine LR -> epochs={}  iterations={} iter_per_epoch={}".format(num_epoch, num_iter, iters_per_epoch))
     elif cfg.lr_scheduler.type == 'CyclicLR':
         iters_per_epoch = cfg.lr_scheduler.step_size_up+cfg.lr_scheduler.step_size_down
     train_dataset = importlib.import_module(cfg.train_dataset.name)

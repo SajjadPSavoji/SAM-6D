@@ -212,5 +212,17 @@ def get_bop_image(inst, bbox, img_size, mask=None):
     rgb = cv2.resize(rgb, (img_size, img_size), interpolation=cv2.INTER_LINEAR)
     return rgb
 
+def pairwise_distance(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    r"""Pairwise Euclidean distance of two point clouds.
 
-
+    Args:
+        x (np.ndarray): Array of shape (N, 2), where N is the number of points and each point is in 2D.
+        y (np.ndarray): Array of shape (M, 2), where M is the number of points and each point is in 2D.
+        
+    Returns:
+        np.ndarray: Pairwise distances of shape (N, M), where dist[i, j] is the distance between x[i] and y[j].
+    """
+    # Compute pairwise Euclidean distance using broadcasting
+    dist = np.linalg.norm(x[:, np.newaxis, :] - y[np.newaxis, :, :], axis=2)
+    
+    return dist

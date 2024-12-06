@@ -38,7 +38,17 @@ from augmentation_utils import (
     DepthDropoutTransform,
     DepthEllipseDropoutTransform,
     DepthEllipseNoiseTransform,
-    DepthBlurTransform ,
+    DepthBlurTransform,
+)
+
+from augmentation_utils import (
+    MaskAugmentation,
+    MaskDialateTransform,
+    MaskBBoxFillTransform,
+    MaskCvxFillTransfor,
+    MaskMissingTransform,
+    MaskEllipseDropoutTransform,
+    MaskLineSplit,
 )
 
 
@@ -149,6 +159,17 @@ class Dataset():
             # DepthAugmentation(DepthMissingTransform(max_missing_fraction=0.9), p=0.3),
         ])
 
+    self.mask_augmentor = MaskAugmentation(p=0.8,
+        transform=[
+            MaskAugmentation(p=0.3, transform=MaskCvxFillTransfor()),
+            MaskAugmentation(p=0.3, transform=MaskBBoxFillTransform()),
+            MaskAugmentation(p=0.3, transform=MaskDialateTransform()),
+            MaskAugmentation(p=0.3, transform=MaskLineSplit()),
+            MaskAugmentation(p=0.3, transform=MaskEllipseDropoutTransform()),
+            MaskAugmentation(p=0.3, transform=MaskMissingTransform()),
+        ]
+    )
+
         self.transform = transforms.Compose([transforms.ToTensor(),
                                             transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                                                 std=[0.229, 0.224, 0.225])])
@@ -223,9 +244,8 @@ class Dataset():
         mask_clean = mask.copy()
         ########################################################################################
         # mask augmentation
-        if self.augment_mask and np.random.rand() < 0.8:
-            mask = np.array(mask>0).astype(np.uint8)
-            mask = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_CROSS, (3,3)), iterations=4)
+        if self.augment_mask:
+            mask = self.mask_augmentor(mask)
         ########################################################################################
         bbox = get_bbox(mask>0)
         y1,y2,x1,x2 = bbox

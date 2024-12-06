@@ -16,15 +16,40 @@ def compute_correspondence_loss(
 ):
     CE = nn.CrossEntropyLoss(reduction ='none')
 
+    clutter  = end_points['clutter']
+    occluded = end_points['occluded']
+
+    # sample occluded labels based on dense indices first
+    indices = end_points['fpd_idx_o']
+    B, M = indices.size()
+    batch_indices = torch.arange(B).unsqueeze(1).expand(B, M)
+    occluded = occluded[batch_indices, indices]
+
+    # Sample clutter and occluded labels for course matching
+    if loss_str == 'coarse':
+        # sample clutter
+        indices = end_points['fps_idx_m']
+        B, M = indices.size()
+        batch_indices = torch.arange(B).unsqueeze(1).expand(B, M)
+        clutter = clutter[batch_indices, indices]
+
+        # sample occluded
+        indices = end_points['fps_idx_o']
+        B, M = indices.size()
+        batch_indices = torch.arange(B).unsqueeze(1).expand(B, M)
+        occluded = occluded[batch_indices, indices]
+
     gt_pts = (pts1-gt_t.unsqueeze(1))@gt_r
     dis_mat = torch.sqrt(pairwise_distance(gt_pts, pts2))
 
     dis1, label1 = dis_mat.min(2)
-    fg_label1 = (dis1<=dis_thres).float()
+    # get fg label from clutter
+    fg_label1 = 1 - clutter
     label1 = (fg_label1 * (label1.float()+1.0)).long()
 
     dis2, label2 = dis_mat.min(1)
-    fg_label2 = (dis2<=dis_thres).float()
+    # get fg label from occluded
+    fg_label2 = 1 - occluded
     label2 = (fg_label2 * (label2.float()+1.0)).long()
 
     # loss

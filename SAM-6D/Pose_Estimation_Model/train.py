@@ -30,7 +30,7 @@ def get_parser():
 
     parser.add_argument("--gpus",
                         type=str,
-                        default="0,1,2,3,4,5,6,7",
+                        default="0",
                         help="index of gpu")
     parser.add_argument("--model",
                         type=str,

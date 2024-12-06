@@ -27,6 +27,7 @@ from data_utils import (
     get_resize_rgb_choose,
     get_random_rotation,
     get_bbox,
+    pairwise_distance,
 )
 
 from augmentation_utils import (
@@ -40,7 +41,6 @@ from augmentation_utils import (
     DepthBlurTransform ,
 )
 
-from model_utils import pairwise_distance
 
 class Dataset():
     def __init__(self, cfg, num_img_per_epoch=-1):
@@ -52,6 +52,7 @@ class Dataset():
         self.min_pts_count = cfg.min_pts_count
         self.min_visib_frac = cfg.min_visib_fract
         self.dilate_mask = cfg.dilate_mask
+        self.augment_mask = cfg.augment_mask
         self.augment_depth = cfg.augment_depth
         self.rgb_mask_flag = cfg.rgb_mask_flag
         self.shift_range = cfg.shift_range
@@ -59,6 +60,7 @@ class Dataset():
         self.n_sample_observed_point = cfg.n_sample_observed_point
         self.n_sample_model_point = cfg.n_sample_model_point
         self.n_sample_template_point = cfg.n_sample_template_point
+        self.occluded_dis_thres = self.cfg.occluded_dis_thres
 
 
         self.data_paths = [
@@ -222,9 +224,10 @@ class Dataset():
         mask_clean = mask.copy()
         ########################################################################################
         # mask augmentation
-        if self.dilate_mask and np.random.rand() < 0.5:
-            mask = np.array(mask>0).astype(np.uint8)
-            mask = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_CROSS, (3,3)), iterations=4)
+        if self.augment_mask:
+            if self.dilate_mask and np.random.rand() < 0.5:
+                mask = np.array(mask>0).astype(np.uint8)
+                mask = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_CROSS, (3,3)), iterations=4)
         ########################################################################################
         bbox = get_bbox(mask>0)
         y1,y2,x1,x2 = bbox
@@ -234,7 +237,7 @@ class Dataset():
 
         ################################ DEFINE CLUTTER instead of BG ##################################
         # clutter is where clean mask is 0, augmented mask is 1 and aug depth is valid
-        clutter = (mask.flatten() > 0) & (mask_clean.flatten() == 0)
+        clutter = ((mask.flatten() > 0) & (mask_clean.flatten() == 0)).astype(float)
         ################################################################################################
 
         # depth
@@ -256,14 +259,15 @@ class Dataset():
 
         # choosing indexes where dpeth and mask are valid
         choose = np.where((depth.flatten() > 0) & (mask.flatten() > 0))[0]
-        choose_clean = np.where((depth_clean.flatten() > 0) & (mask_clean.flatten() > 0))[0]
-
         if len(choose) == 0:
             return None
-
         pts = pts.reshape(-1, 3)[choose, :]
         clutter = clutter[choose]
 
+        # choosing indexes where clean depth and clean mask are both valid
+        choose_clean = np.where((depth_clean.flatten() > 0) & (mask_clean.flatten() > 0))[0]
+        if len(choose_clean) == 0:
+            return None
         pts_clean = pts_clean.reshape(-1, 3)[choose_clean, :]
 
         # # ########################################################################################
@@ -317,20 +321,24 @@ class Dataset():
         target_R = target_R @ rand_R
 
         # translation aug
-        add_t = np.random.uniform(-self.shift_range, self.shift_range, (1, 3))
+        add_t = np.random.uniform(-self.shift_range, self.shift_range, (1, 3)) #TODO why are we limiting the shift range to only 0.01 ???????
         target_t = target_t + add_t[0]
         pts_clean = np.add(pts_clean, add_t)
-        add_t = add_t + 0.001*np.random.randn(pts.shape[0], 3)
+        # add notmal noise to translation aug for observed pointss
+        add_t = add_t + self.shift_range/10*np.random.randn(pts.shape[0], 3) # noise magnitute should change depending on shift_range
         pts = np.add(pts, add_t)
         
         ####### define occluded points from the templates ##########################################
         target_pts_clean = (pts_clean - target_t[None, :]) @ target_R
         tem_pts = np.concatenate([tem1_pts, tem2_pts], axis=0)
-        dis_mat = torch.sqrt(pairwise_distance(target_pts_clean, tem_pts))
-        dis2, label2 = dis_mat.min(1)
-        occluded = (dis2>self.cfg.occluded_dis_thres).float()
+        radius = np.max(np.linalg.norm(tem_pts, axis=1)) + 1e-6
+        dis_mat = pairwise_distance(target_pts_clean/radius, tem_pts/radius)
+        label2 = np.argmin(dis_mat, axis=0)  # Indices of min values along axis 0
+        dis2 = dis_mat[label2, range(dis_mat.shape[1])]  # Fetch min values using indices
+        occluded = (dis2>self.occluded_dis_thres).astype(float)
         ############################################################################################
 
+    
         ret_dict = {
             'pts': torch.FloatTensor(pts),
             'rgb': torch.FloatTensor(rgb),

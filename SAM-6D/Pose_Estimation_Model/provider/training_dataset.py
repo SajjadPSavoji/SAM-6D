@@ -223,7 +223,7 @@ class Dataset():
         mask_clean = mask.copy()
         ########################################################################################
         # mask augmentation
-        if self.augment_mask and np.random.rand() < 0.5:
+        if self.augment_mask and np.random.rand() < 0.8:
             mask = np.array(mask>0).astype(np.uint8)
             mask = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_CROSS, (3,3)), iterations=4)
         ########################################################################################

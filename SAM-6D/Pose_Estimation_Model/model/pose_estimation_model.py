@@ -21,7 +21,9 @@ class Net(nn.Module):
         self.fine_point_matching = FinePointMatching(cfg.fine_point_matching)
 
     def forward(self, end_points):
-        dense_pm, dense_fm, dense_po, dense_fo, radius = self.feature_extraction(end_points)
+        dense_pm, dense_fm, dense_po, dense_fo, fpd_idx_o, radius = self.feature_extraction(end_points)
+        # add dense indeces to endpoint
+        end_points["fpd_idx_o"] = fpd_idx_o
 
         # pre-compute geometric embeddings for geometric transformer
         bg_point = torch.ones(dense_pm.size(0),1,3).float().to(dense_pm.device) * 100
@@ -35,6 +37,10 @@ class Net(nn.Module):
             dense_po, dense_fo, self.coarse_npoint, return_index=True
         )
         geo_embedding_o = self.geo_embedding(torch.cat([bg_point, sparse_po], dim=1))
+
+        # add sparse indexes to end point
+        end_points["fps_idx_m"] = fps_idx_m
+        end_points["fps_idx_o"] = fps_idx_o
 
         # coarse_point_matching
         end_points = self.coarse_point_matching(

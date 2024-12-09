@@ -2,7 +2,7 @@ NAME_PROJECT: SAM-6D
 
 optimizer:
   type : Adam
-  lr   : 0.0007
+  lr   : 0.0001
   betas: [0.5, 0.999]
   eps  : 0.000001
   weight_decay: 0.0
@@ -62,7 +62,7 @@ train_dataset:
   n_sample_observed_point: 2048
   n_sample_model_point: 2048
   n_sample_template_point: 5000
-  min_visib_fract: 0.01
+  min_visib_fract: 0.00
   min_px_count_visib: 3
   min_pts_count: 3
   shift_range: 0.01
@@ -104,4 +104,4 @@ test_dataloader:
 rd_seed: 1
 training_epoch: 15
 iters_to_print: 50
-pretrain_dir: checkpoints/sam-6d-pem-base.pth
+# pretrain_dir: checkpoints/sam-6d-pem-base.pth

@@ -335,28 +335,12 @@ class MaskBBoxFillTransform(MaskTransform):
         mask[y1:y2, x1:x2] = MaskAugmentation.FILL
         return mask
 
-class MaskCvxFillTransfor(MasTransform):
-    """fill mask using convex hull filling."""
-
-    @staticmethod
-    def convex_hull_fill(mask):
-        points = np.column_stack(np.where(mask > 0))
-        points = points[:, ::-1]
-        hull = cv2.convexHull(points)
-        hull_mask = np.zeros_like(mask)
-        cv2.fillConvexPoly(hull_mask, hull, MaskAugmentation.FILL)  
-        return hull_mask
-
-    def _transform_mask(self, mask: np.ndarray) -> np.ndarray:
-        mask = MaskCvxFillTransfor.convex_hull_fill(mask)
-        return mask
 
 class MaskMissingTransform(MaskTransform):
     """Randomly drop-out parts of the mask."""
 
     def __init__(self, max_missing_fraction: float = 0.2):
         self.max_missing_fraction = max_missing_fraction
-        self.debug = debug
 
     def _transform_mask(self, mask: np.ndarray) -> np.ndarray:
         v_idx, u_idx = np.where(mask > 0)
@@ -458,7 +442,7 @@ class MaskEllipseDropoutTransform(MaskTransform):
 
         return mask
 
-    def _transform_depth(self, mask: np.ndarray) -> np.ndarray:
+    def _transform_mask(self, mask: np.ndarray) -> np.ndarray:
         mask = self.dropout_random_ellipses(mask, self._noise_params)
         return mask
 
@@ -494,9 +478,9 @@ class MaskLineSplit(MaskTransform):
         y0, x0 = nonzero_points[chosen_idx]  # nonzero_points is (row, col) = (y, x)
 
         # Choose a random angle
-        theta = 2 * math.pi * random.random()
-        cos_t = math.cos(theta)
-        sin_t = math.sin(theta)
+        theta = 2 * np.pi * np.random.random()
+        cos_t = np.cos(theta)
+        sin_t = np.sin(theta)
 
         # Compute c for the line x*cos_t + y*sin_t = c
         c = x0 * cos_t + y0 * sin_t
@@ -527,6 +511,5 @@ class MaskLineSplit(MaskTransform):
         return mask
 
     def _transform_mask(self, mask: np.ndarray) -> np.ndarray:
-        
         mask = MaskLineSplit.split_and_drop_smallest(mask)
         return mask

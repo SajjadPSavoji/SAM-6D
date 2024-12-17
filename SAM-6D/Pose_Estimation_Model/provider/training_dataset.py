@@ -163,8 +163,8 @@ class Dataset():
                 MaskAugmentation(p=0.3, transform=MaskBBoxFillTransform()),
                 MaskAugmentation(p=0.3, transform=MaskDialateTransform()),
                 MaskAugmentation(p=0.3, transform=MaskLineSplit()),
-                MaskAugmentation(p=0.3, transform=MaskEllipseDropoutTransform()),
-                MaskAugmentation(p=0.3, transform=MaskMissingTransform()),
+                # MaskAugmentation(p=1, transform=MaskEllipseDropoutTransform()),
+                # MaskAugmentation(p=0, transform=MaskMissingTransform()),
             ]
         )
 

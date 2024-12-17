@@ -239,6 +239,7 @@ class Dataset():
         mask = io_load_masks(open(os.path.join(self.data_dir, path_head+'.mask_visib.json'), 'rb'))[valid_idx]
         if np.sum(mask) == 0:
             return None
+        mask = np.array(mask>0).astype(np.uint8)
         mask_clean = mask.copy()
         ########################################################################################
         # mask augmentation

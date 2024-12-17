@@ -163,8 +163,8 @@ class Dataset():
                 MaskAugmentation(p=0.3, transform=MaskBBoxFillTransform()),
                 MaskAugmentation(p=0.3, transform=MaskDialateTransform()),
                 MaskAugmentation(p=0.3, transform=MaskLineSplit()),
-                # MaskAugmentation(p=1, transform=MaskEllipseDropoutTransform()),
-                # MaskAugmentation(p=0, transform=MaskMissingTransform()),
+                MaskAugmentation(p=0.3, transform=MaskEllipseDropoutTransform()),
+                MaskAugmentation(p=0.3, transform=MaskMissingTransform()),
             ]
         )
 
@@ -239,12 +239,15 @@ class Dataset():
         mask = io_load_masks(open(os.path.join(self.data_dir, path_head+'.mask_visib.json'), 'rb'))[valid_idx]
         if np.sum(mask) == 0:
             return None
-        mask = np.array(mask>0).astype(np.uint8)
+        # convert mask to float 32
+        mask = mask.astype(np.float32)
         mask_clean = mask.copy()
         ########################################################################################
         # mask augmentation
         if self.augment_mask:
             mask = self.mask_augmentor(mask)
+        if np.sum(mask>0) == 0:
+            return None
         ########################################################################################
         bbox = get_bbox(mask>0)
         y1,y2,x1,x2 = bbox
@@ -263,6 +266,8 @@ class Dataset():
         # depth augmentation
         if self.augment_depth:
             depth = self.depth_augmentor(depth)
+        if np.sum(depth>0) == 0:
+            return None
         ########################################################################################
         depth = depth * camera['depth_scale'] / 1000.0
         depth_clean = depth_clean * camera['depth_scale'] / 1000.0

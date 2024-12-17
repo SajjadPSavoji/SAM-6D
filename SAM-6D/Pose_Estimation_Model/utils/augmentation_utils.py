@@ -288,6 +288,8 @@ class DepthBlurTransform(DepthTransform):
 # mask augmentation utils #
 
 class MaskTransform(object):
+    DROP = 0.0
+    FILL = 1.0
     def _transform_mask(self, mask: np.ndarray) -> np.ndarray:
         raise NotImplementedError
 
@@ -296,8 +298,6 @@ class MaskTransform(object):
         return mask
 
 class MaskAugmentation(MaskTransform):
-    FILL = 1
-    DROP = 0
     def __init__(
         self,
         transform: Union[MaskTransform, List["MaskAugmentation"]],
@@ -307,8 +307,7 @@ class MaskAugmentation(MaskTransform):
         self.transform = transform
 
     def __call__(self, mask: np.ndarray) -> np.ndarray:
-        mask = np.copy(mask)
-        mask = np.array(mask>0).astype(np.uint8)
+        
         if random.random() <= self.p:
             if isinstance(self.transform, list):
                 for transform_ in self.transform:
@@ -332,7 +331,7 @@ class MaskBBoxFillTransform(MaskTransform):
     def _transform_mask(self, mask: np.ndarray) -> np.ndarray:
         bbox = get_bbox(mask>0)
         y1,y2,x1,x2 = bbox
-        mask[y1:y2, x1:x2] = MaskAugmentation.FILL
+        mask[y1:y2, x1:x2] = MaskTransform.FILL
         return mask
 
 
@@ -348,7 +347,7 @@ class MaskMissingTransform(MaskTransform):
         dropout_ids = np.random.choice(
             np.arange(len(u_idx)), int(missing_fraction * len(u_idx)), replace=False
         )
-        mask[v_idx[dropout_ids], u_idx[dropout_ids]] = MaskAugmentation.DROP
+        mask[v_idx[dropout_ids], u_idx[dropout_ids]] = MaskTransform.DROP
         return mask
 
 
@@ -410,6 +409,7 @@ class MaskEllipseDropoutTransform(MaskTransform):
 
         @param mask: a [H x W] segmentation mask
         """
+        mask = mask.copy()
 
         (
             x_radii,
@@ -436,7 +436,7 @@ class MaskEllipseDropoutTransform(MaskTransform):
                 angle=angle,
                 startAngle=0,
                 endAngle=360,
-                color=MaskAugmentation.DROP,
+                color=MaskTransform.DROP,
                 thickness=-1,
             )
 
@@ -503,10 +503,10 @@ class MaskLineSplit(MaskTransform):
         # Determine which side is smaller
         if side1_count < side2_count:
             # Drop side1 (where side_values > c)
-            mask[side_values > c] = MaskAugmentation.DROP
+            mask[side_values > c] = MaskTransform.DROP
         else:
             # Drop side2 (where side_values <= c)
-            mask[side_values <= c] = MaskAugmentation.DROP
+            mask[side_values <= c] = MaskTransform.DROP
 
         return mask
 

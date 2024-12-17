@@ -252,7 +252,7 @@ class Dataset():
         mask_clean = mask_clean[y1:y2, x1:x2]
 
         ################################ DEFINE CLUTTER instead of BG ##################################
-        # clutter is where clean mask is 0, augmented mask is 1 and aug depth is valid
+        # clutter is where clean mask is 0, augmented mask is 1
         clutter = ((mask.flatten() > 0) & (mask_clean.flatten() == 0)).astype(float)
         ################################################################################################
 

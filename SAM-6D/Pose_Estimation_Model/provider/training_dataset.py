@@ -250,7 +250,6 @@ class Dataset():
         y1,y2,x1,x2 = bbox
         mask = mask[y1:y2, x1:x2]
         mask_clean = mask_clean[y1:y2, x1:x2]
-        # choose = mask.astype(np.float32).flatten().nonzero()[0]
 
         ################################ DEFINE CLUTTER instead of BG ##################################
         # clutter is where clean mask is 0, augmented mask is 1 and aug depth is valid

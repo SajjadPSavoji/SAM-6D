@@ -337,11 +337,11 @@ class Dataset():
         target_R = target_R @ rand_R
 
         # translation aug
-        add_t = np.random.uniform(-self.shift_range, self.shift_range, (1, 3)) #TODO why are we limiting the shift range to only 0.01 ???????
+        add_t = np.random.uniform(-self.shift_range, self.shift_range, (1, 3))
         target_t = target_t + add_t[0]
         pts_clean = np.add(pts_clean, add_t)
         # add notmal noise to translation aug for observed pointss
-        add_t = add_t + self.shift_range/10*np.random.randn(pts.shape[0], 3) # noise magnitute should change depending on shift_range
+        add_t = add_t + self.shift_range/10*np.random.randn(pts.shape[0], 3)
         pts = np.add(pts, add_t)
         
         ####### define occluded points from the templates ##########################################

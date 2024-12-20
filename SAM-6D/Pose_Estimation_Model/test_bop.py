@@ -209,6 +209,7 @@ if __name__ == "__main__":
         checkpoint = os.path.join(cfg.log_dir, 'checkpoint_iter' + str(cfg.test_iter).zfill(6) + '.pth')
     else:
         checkpoint = cfg.checkpoint_path
+    print(f"loading checkpoint: {checkpoint}")
     gorilla.solver.load_checkpoint(model=model, filename=checkpoint)
 
 

@@ -235,9 +235,10 @@ class Dataset():
         mask = io_load_masks(open(os.path.join(self.data_dir, path_head+'.mask_visib.json'), 'rb'))[valid_idx]
         if np.sum(mask) == 0:
             return None
-        if self.augment_mask and np.random.rand() < 0.5:
-            mask = np.array(mask>0).astype(np.uint8)
-            mask = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_CROSS, (3,3)), iterations=4)
+        if self.augment_mask:
+            mask = self.mask_augmentor(mask)
+            if np.sum(mask>0) == 0:
+                return None
 
         bbox = get_bbox(mask>0)
         y1,y2,x1,x2 = bbox

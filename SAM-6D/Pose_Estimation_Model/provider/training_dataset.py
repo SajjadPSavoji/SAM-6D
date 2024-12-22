@@ -154,7 +154,15 @@ class Dataset():
             # DepthAugmentation(DepthGaussianNoiseTransform(std_dev=0.01), p=0.1),
             # DepthAugmentation(DepthMissingTransform(max_missing_fraction=0.9), p=0.3),
         ])
-
+        self.mask_augmentor = MaskAugmentation(p=0.8,
+            transform=[
+                MaskAugmentation(p=0.3, transform=MaskBBoxFillTransform()),
+                MaskAugmentation(p=0.3, transform=MaskDialateTransform()),
+                MaskAugmentation(p=0.3, transform=MaskLineSplit()),
+                MaskAugmentation(p=0.3, transform=MaskEllipseDropoutTransform()),
+                MaskAugmentation(p=0.3, transform=MaskMissingTransform()),
+            ]
+        )
         self.transform = transforms.Compose([transforms.ToTensor(),
                                             transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                                                 std=[0.229, 0.224, 0.225])])

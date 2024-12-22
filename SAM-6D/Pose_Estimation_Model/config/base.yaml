@@ -67,8 +67,8 @@ train_dataset:
   min_pts_count: 3
   shift_range: 0.01
   rgb_mask_flag: True
-  dilate_mask: True
   augment_depth : False
+  augment_mask  : True
 
 train_dataloader:
   bs            : 196
@@ -104,4 +104,4 @@ test_dataloader:
 rd_seed: 1
 training_epoch: 15
 iters_to_print: 50
-# pretrain_dir: checkpoints/sam-6d-pem-base.pth
+pretrain_dir: checkpoints/sam-6d-pem-base.pth

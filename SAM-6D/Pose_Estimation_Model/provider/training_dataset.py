@@ -37,9 +37,17 @@ from augmentation_utils import (
     DepthDropoutTransform,
     DepthEllipseDropoutTransform,
     DepthEllipseNoiseTransform,
-    DepthBlurTransform ,
+    DepthBlurTransform,
 )
 
+from augmentation_utils import (
+    MaskAugmentation,
+    MaskDialateTransform,
+    MaskBBoxFillTransform,
+    MaskMissingTransform,
+    MaskEllipseDropoutTransform,
+    MaskLineSplit,
+)
 
 class Dataset():
     def __init__(self, cfg, num_img_per_epoch=-1):
@@ -50,8 +58,8 @@ class Dataset():
         self.min_visib_px = cfg.min_px_count_visib
         self.min_pts_count = cfg.min_pts_count
         self.min_visib_frac = cfg.min_visib_fract
-        self.dilate_mask = cfg.dilate_mask
         self.augment_depth = cfg.augment_depth
+        self.augment_mask = cfg.augment_mask
         self.rgb_mask_flag = cfg.rgb_mask_flag
         self.shift_range = cfg.shift_range
         self.img_size = cfg.img_size
@@ -222,7 +230,7 @@ class Dataset():
 
         ########################################################################################
         # mask augmentation
-        if self.dilate_mask and np.random.rand() < 0.5:
+        if self.augment_mask and np.random.rand() < 0.5:
             mask = np.array(mask>0).astype(np.uint8)
             mask = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_CROSS, (3,3)), iterations=4)
         ########################################################################################

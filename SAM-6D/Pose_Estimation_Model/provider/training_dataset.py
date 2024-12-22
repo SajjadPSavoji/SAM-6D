@@ -122,10 +122,10 @@ class Dataset():
         self.depth_augmentor = DepthAugmentation(p=0.8,
             transform=[
             # level 0 depth augmentation
-            DepthAugmentation(DepthBlurTransform(), p=0.3),
-            DepthAugmentation(DepthEllipseDropoutTransform(), p=0.3),
-            DepthAugmentation(DepthGaussianNoiseTransform(std_dev=0.01), p=0.3),
-            DepthAugmentation(DepthMissingTransform(max_missing_fraction=0.2), p=0.3),
+            DepthAugmentation(p=0.3, transform=DepthBlurTransform()),
+            DepthAugmentation(p=0.3, transform=DepthEllipseDropoutTransform()),
+            DepthAugmentation(p=0.3, transform=DepthGaussianNoiseTransform()),
+            DepthAugmentation(p=0.3, transform=DepthMissingTransform()),
             # level 1 depth augmentation
             # DepthAugmentation(DepthBlurTransform(), p=0.3),
             # DepthAugmentation(
@@ -235,51 +235,30 @@ class Dataset():
         mask = io_load_masks(open(os.path.join(self.data_dir, path_head+'.mask_visib.json'), 'rb'))[valid_idx]
         if np.sum(mask) == 0:
             return None
-
-        ########################################################################################
-        # mask augmentation
         if self.augment_mask and np.random.rand() < 0.5:
             mask = np.array(mask>0).astype(np.uint8)
             mask = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_CROSS, (3,3)), iterations=4)
-        ########################################################################################
 
         bbox = get_bbox(mask>0)
         y1,y2,x1,x2 = bbox
         mask = mask[y1:y2, x1:x2]
-        # choose = mask.astype(np.float32).flatten().nonzero()[0]
+        choose = mask.astype(np.float32).flatten().nonzero()[0]
 
         # depth
         depth = load_im(os.path.join(self.data_dir, path_head+'.depth.png')).astype(np.float32)
-        depth_clean = depth.copy()
-        ########################################################################################
-        # depth augmentation
         if self.augment_depth:
             depth = self.depth_augmentor(depth)
-        ########################################################################################
         depth = depth * camera['depth_scale'] / 1000.0
-        depth_clean = depth_clean * camera['depth_scale'] / 1000.0
-
         pts = get_point_cloud_from_depth(depth, K, [y1, y2, x1, x2])
-        pts_clean = get_point_cloud_from_depth(depth_clean, K, [y1, y2, x1, x2])
-
-        depth = depth[y1:y2, x1:x2]
-        choose = np.where((depth.flatten() > 0) & (mask.flatten() > 0))[0]
-        if len(choose) == 0:
-            return None
         pts = pts.reshape(-1, 3)[choose, :]
-        pts_clean = pts_clean.reshape(-1, 3)[choose, :]
 
-        # ########################################################################################
-        # they try to remove outliers by using a radius which conflicts with depth augmentation.
-        # network should lern to handle outliers and assign them to background.
         target_pts = (pts - target_t[None, :]) @ target_R
         tem_pts = np.concatenate([tem1_pts, tem2_pts], axis=0)
         radius = np.max(np.linalg.norm(tem_pts, axis=1))
         flag = np.linalg.norm(target_pts, axis=1) < radius * 1.2 # for outlier removal
+
         pts = pts[flag]
-        pts_clean = pts_clean[flag]
         choose = choose[flag]
-        # ########################################################################################
 
         if len(choose) < self.min_pts_count:
             return None
@@ -290,7 +269,6 @@ class Dataset():
             choose_idx = np.random.choice(np.arange(len(choose)), self.n_sample_observed_point, replace=False)
         choose = choose[choose_idx]
         pts = pts[choose_idx]
-        pts_clean = pts_clean[choose_idx]
 
         # rgb
         rgb = load_im(os.path.join(self.data_dir, path_head+'.rgb.jpg')).astype(np.uint8)
@@ -312,14 +290,11 @@ class Dataset():
         # translation aug
         add_t = np.random.uniform(-self.shift_range, self.shift_range, (1, 3))
         target_t = target_t + add_t[0]
-        pts_clean = np.add(pts_clean, add_t)
         add_t = add_t + 0.001*np.random.randn(pts.shape[0], 3)
         pts = np.add(pts, add_t)
-        
 
         ret_dict = {
             'pts': torch.FloatTensor(pts),
-            'pts_clean': torch.FloatTensor(pts_clean),
             'rgb': torch.FloatTensor(rgb),
             'rgb_choose': torch.IntTensor(rgb_choose).long(),
             'translation_label': torch.FloatTensor(target_t),

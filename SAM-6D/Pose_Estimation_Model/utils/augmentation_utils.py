@@ -50,7 +50,7 @@ class DepthAugmentation(DepthTransform):
 class DepthGaussianNoiseTransform(DepthTransform):
     """Adds random Gaussian noise to the depth image."""
 
-    def __init__(self, std_dev: float = 0.02):
+    def __init__(self, std_dev: float = 0.01):
         self.std_dev = std_dev
 
     def _transform_depth(self, depth: np.ndarray) -> np.ndarray:

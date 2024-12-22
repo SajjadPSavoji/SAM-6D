@@ -62,12 +62,12 @@ train_dataset:
   n_sample_observed_point: 2048
   n_sample_model_point: 2048
   n_sample_template_point: 5000
-  min_visib_fract: 0.00
+  min_visib_fract: 0.1
   min_px_count_visib: 3
-  min_pts_count: 3
+  min_pts_count: 32
   shift_range: 0.01
   rgb_mask_flag: True
-  augment_depth : False
+  augment_depth : True
   augment_mask  : True
 
 train_dataloader:

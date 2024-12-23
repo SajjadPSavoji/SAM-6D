@@ -204,6 +204,9 @@ class Dataset():
         valid_idx = []
         for k, item in enumerate(gt_info):
             if item['px_count_valid'] >= self.min_visib_px and item['visib_fract'] >= self.min_visib_frac:
+                # de baias training dataset
+                if item['visib_fract'] > 0.95 and np.random.rand() > 0.1:
+                    continue
                 valid_idx.append(k)
         if len(valid_idx) == 0:
             return None

@@ -239,6 +239,7 @@ class Dataset():
         if np.sum(mask) == 0:
             return None
         if self.augment_mask:
+            mask = mask.astype(np.float32)
             mask = self.mask_augmentor(mask)
             if np.sum(mask>0) == 0:
                 return None

@@ -67,6 +67,8 @@ def get_parser():
                         type=int,
                         default=0,
                         help="experiment id")
+    parser.add_argument("--ret_course",
+                        action='store_true',)
     args_cfg = parser.parse_args()
 
     return args_cfg
@@ -87,6 +89,7 @@ def init():
     cfg.checkpoint_path = args.checkpoint_path
     cfg.test_iter = args.iter
     cfg.dataset = args.dataset
+    cfg.model.ret_course = args.ret_course
 
     if args.view != -1:
         cfg.test_dataset.n_template_view = args.view
@@ -221,7 +224,8 @@ if __name__ == "__main__":
             save_path = os.path.join(cfg.log_dir, dataset_name + '_eval_iter' + str(cfg.test_iter).zfill(6))
             if not os.path.isdir(save_path):
                 os.makedirs(save_path)
-            save_path = os.path.join(save_path,'result_' + dataset_name +'.csv')
+            version = "course" if cfg.model.ret_course else "fine"
+            save_path = os.path.join(save_path,f'result_{version}_' + dataset_name +'.csv')
             test(model, cfg, save_path, dataset_name, detetion_paths[dataset_name])
 
             print('saving to {} ...'.format(save_path))

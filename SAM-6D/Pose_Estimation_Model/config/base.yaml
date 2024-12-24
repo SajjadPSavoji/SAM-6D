@@ -52,8 +52,7 @@ model:
     sim_type: cosine
     normalize_feat: True
     loss_dis_thres: 0.15
-
-
+  ret_course: False
 
 train_dataset:
   name: training_dataset
@@ -94,8 +93,8 @@ test_dataset:
 
 
 test_dataloader:
-  bs            : 1
-  num_workers   : 1
+  bs            : 4
+  num_workers   : 4
   shuffle       : False
   drop_last     : False
   pin_memory    : False

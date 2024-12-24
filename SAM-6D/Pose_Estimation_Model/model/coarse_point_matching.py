@@ -67,13 +67,14 @@ class CoarsePointMatching(nn.Module):
                 loss_str='coarse'
             )
         else:
-            init_R, init_t = compute_coarse_Rt(
+            init_R, init_t, init_score = compute_coarse_Rt(
                 atten_list[-1], p1, p2,
                 end_points['model'] / (radius.reshape(-1, 1, 1) + 1e-6),
                 self.cfg.nproposal1, self.cfg.nproposal2,
             )
         end_points['init_R'] = init_R
         end_points['init_t'] = init_t
+        end_points['init_pose_score'] = init_score
 
         if self.return_feat:
             return end_points, self.out_proj(f1), self.out_proj(f2)

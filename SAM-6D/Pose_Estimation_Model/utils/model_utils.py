@@ -241,9 +241,10 @@ def compute_coarse_Rt(
     dis = dis.min(2)[0].reshape(B, n_proposal2, -1)
     scores = weights1.unsqueeze(1).sum(2) / ((dis * weights1.unsqueeze(1)).sum(2) + + 1e-8)
     idx = scores.max(1)[1]
+    pred_score = scores.max(1)[0]
     pred_R = torch.gather(pred_rs, 1, idx.reshape(B,1,1,1).repeat(1,1,3,3)).squeeze(1)
     pred_t = torch.gather(pred_ts, 1, idx.reshape(B,1,1,1).repeat(1,1,1,3)).squeeze(2).squeeze(1)
-    return pred_R, pred_t
+    return pred_R, pred_t, pred_score
 
 
 

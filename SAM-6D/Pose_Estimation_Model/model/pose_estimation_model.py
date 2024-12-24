@@ -19,6 +19,7 @@ class Net(nn.Module):
         self.geo_embedding = GeometricStructureEmbedding(cfg.geo_embedding)
         self.coarse_point_matching = CoarsePointMatching(cfg.coarse_point_matching)
         self.fine_point_matching = FinePointMatching(cfg.fine_point_matching)
+        self.ret_course = cfg.ret_course
 
     def forward(self, end_points):
         dense_pm, dense_fm, dense_po, dense_fo, radius = self.feature_extraction(end_points)
@@ -49,6 +50,13 @@ class Net(nn.Module):
             dense_po, dense_fo, geo_embedding_o, fps_idx_o,
             radius, end_points
         )
+
+        # select course/fine pose as final result
+        # used for evaluation mainly
+        if self.ret_course:
+            end_points['pred_R'] = end_points['init_R']
+            end_points['pred_t'] = end_points['init_t'] * (radius.reshape(-1, 1)+1e-6)
+            end_points['pred_pose_score'] = end_points['init_pose_score']
 
         return end_points
 

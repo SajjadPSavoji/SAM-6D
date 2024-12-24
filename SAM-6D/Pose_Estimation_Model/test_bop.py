@@ -238,7 +238,8 @@ if __name__ == "__main__":
         save_path = os.path.join(cfg.log_dir, dataset_name + '_eval_iter' + str(cfg.test_iter).zfill(6))
         if not os.path.isdir(save_path):
             os.makedirs(save_path)
-        save_path = os.path.join(save_path,'result_' + dataset_name +'.csv')
+        version = "course" if cfg.model.ret_course else "fine"
+        save_path = os.path.join(save_path,f'result_{version}_' + dataset_name +'.csv')
         test(model, cfg,  save_path, dataset_name, detetion_paths[dataset_name])
 
         print('saving to {} ...'.format(save_path))

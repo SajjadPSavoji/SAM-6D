@@ -10,6 +10,7 @@ render_dir = os.path.dirname(os.path.abspath(__file__))
 gso_path = os.path.join(render_dir, '../Data/MegaPose-Training-Data/MegaPose-GSO/google_scanned_objects')
 gso_norm_path = os.path.join(gso_path, 'models_normalized')
 output_dir = os.path.join(render_dir, '../Data/MegaPose-Training-Data/MegaPose-GSO/templates')
+cnos_cam_fpath = os.path.join(render_dir, '../Instance_Segmentation_Model/utils/poses/predefined_poses/cam_poses_level0.npy')
 
 bproc.init()
 
@@ -26,8 +27,45 @@ def get_norm_info(mesh_path):
 
     return 1/(2*radius)
 
+def get_cam_locs(cnos_cam_fpath):
+    """
+    Loads camera poses, adjusts their alignment, and scales them to a target format.
 
-for idx, model_name in enumerate(os.listdir(gso_norm_path)):
+    Args:
+        cnos_cam_fpath (str): Path to the file with camera poses.
+
+    Returns:
+        np.ndarray: Transformed and aligned camera positions.
+    """
+    # Load camera poses
+    cams = np.load(cnos_cam_fpath)
+    
+    # Adjust rotation and scale translation
+    cams[:, :3, 1:3] = -cams[:, :3, 1:3]
+    cams[:, :3, -1] *= 0.002  # Scale translation
+    
+    # Extract camera positions
+    pos = cams[:, :3, -1]
+    
+    # Align directions
+    dir_orig = np.array([0, 0, -1]) / np.linalg.norm([0, 0, -1])
+    dir_tgt = np.array([-1, -1, -1]) / np.linalg.norm([-1, -1, -1])
+    axis = np.cross(dir_orig, dir_tgt)
+    axis_mag = np.linalg.norm(axis)
+    dot = np.dot(dir_orig, dir_tgt)
+    skew = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
+    rot = np.eye(3) + skew + skew @ skew * ((1 - dot) / (axis_mag ** 2))
+    
+    # Apply rotation and normalize
+    aligned_pos = pos @ rot.T
+    aligned_pos /= aligned_pos[0, 0]  # Scale by first position
+    aligned_pos = np.vstack([aligned_pos[-1:], aligned_pos[:-1]])  # Move last to top
+    
+    return aligned_pos
+
+location = get_cam_locs(cnos_cam_fpath)
+
+for model_idx, model_name in enumerate(os.listdir(gso_norm_path)):
     if not os.path.isdir(os.path.join(gso_norm_path, model_name)) or '.' in model_name:
         continue
     print('---------------------------'+str(model_name)+'-------------------------------------')
@@ -41,56 +79,43 @@ for idx, model_name in enumerate(os.listdir(gso_norm_path)):
         continue
 
     scale = get_norm_info(obj_fpath)
-    
-    bproc.clean_up()
 
-    obj = bproc.loader.load_obj(obj_fpath)[0]
-    obj.set_scale([scale, scale, scale])
-    obj.set_cp("category_id", idx)
+    for idx, loc in enumerate(location):
+        print('---------------------------view:'+str(idx)+'-------------------------------------')
+        bproc.clean_up()
 
-    # set light
-    light1 = bproc.types.Light()
-    light1.set_type("POINT")
-    light1.set_location([-3, -3, -3])
-    light1.set_energy(1000)
+        obj = bproc.loader.load_obj(obj_fpath)[0]
+        obj.set_scale([scale, scale, scale])
+        obj.set_cp("category_id", model_idx)
 
-    light2 = bproc.types.Light()
-    light2.set_type("POINT")
-    light2.set_location([3, 3, 3])
-    light2.set_energy(1000)
+        # set light
+        light_energy = 1000
+        light_scale = 3
+        light1 = bproc.types.Light()
+        light1.set_type("POINT")
+        light1.set_location([light_scale*v for v in loc])
+        light1.set_energy(light_energy)
 
-    location = [[-1, -1, -1], [1, 1, 1]]
-    # set camera locations around the object
-    for loc in location:
-        # compute rotation based on vector going from location towards the location of object
+        # add cam and point to object
         rotation_matrix = bproc.camera.rotation_from_forward_vec(obj.get_location() - loc)
-        # add homog cam pose based on location and rotation
         cam2world_matrix = bproc.math.build_transformation_mat(loc, rotation_matrix)
         bproc.camera.add_camera_pose(cam2world_matrix)
 
-    bproc.renderer.set_max_amount_of_samples(50)
-    # render the whole pipeline
-    data = bproc.renderer.render()
-    # render nocs
-    data.update(bproc.renderer.render_nocs())
+        bproc.renderer.set_max_amount_of_samples(50)
+        # render the whole pipeline
+        data = bproc.renderer.render()
+        # render nocs
+        data.update(bproc.renderer.render_nocs())
 
-    # save rgb images
-    color_bgr_0 = data["colors"][0]
-    color_bgr_0[..., :3] = color_bgr_0[..., :3][..., ::-1]
-    cv2.imwrite(os.path.join(save_fpath,'rgb_'+str(0)+'.png'), color_bgr_0)
-    color_bgr_1 = data["colors"][1]
-    color_bgr_1[..., :3] = color_bgr_1[..., :3][..., ::-1]
-    cv2.imwrite(os.path.join(save_fpath,'rgb_'+str(1)+'.png'), color_bgr_1)
+        # save rgb images
+        color_bgr_0 = data["colors"][0]
+        color_bgr_0[..., :3] = color_bgr_0[..., :3][..., ::-1]
+        cv2.imwrite(os.path.join(save_fpath,'rgb_'+str(idx)+'.png'), color_bgr_0)
+
+        # save masks
+        mask_0 = data["nocs"][0][..., -1]
+        cv2.imwrite(os.path.join(save_fpath,'mask_'+str(idx)+'.png'), mask_0*255)
     
-    # save masks
-    mask_0 = data["nocs"][0][..., -1]
-    mask_1 = data["nocs"][1][..., -1]
-    cv2.imwrite(os.path.join(save_fpath,'mask_'+str(0)+'.png'), mask_0*255)
-    cv2.imwrite(os.path.join(save_fpath,'mask_'+str(1)+'.png'), mask_1*255)
-
-    # save nocs
-    xyz_0 = 2*(data["nocs"][0][..., :3] - 0.5)
-    xyz_1 = 2*(data["nocs"][1][..., :3] - 0.5)
-    np.save(os.path.join(save_fpath,'xyz_'+str(0)+'.npy'), xyz_0.astype(np.float16))
-    np.save(os.path.join(save_fpath,'xyz_'+str(1)+'.npy'), xyz_1.astype(np.float16))
-
+        # save nocs
+        xyz_0 = 2*(data["nocs"][0][..., :3] - 0.5)
+        np.save(os.path.join(save_fpath,'xyz_'+str(idx)+'.npy'), xyz_0.astype(np.float16))

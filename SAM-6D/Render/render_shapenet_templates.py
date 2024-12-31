@@ -10,6 +10,7 @@ render_dir = os.path.dirname(os.path.abspath(__file__))
 shapenet_path = os.path.join(render_dir, '../Data/MegaPose-Training-Data/MegaPose-ShapeNetCore/shapenetcorev2')
 shapenet_orig_path = os.path.join(shapenet_path, 'models_orig')
 output_dir = os.path.join(render_dir, '../Data/MegaPose-Training-Data/MegaPose-ShapeNetCore/templates')
+cnos_cam_fpath = os.path.join(render_dir, '../Instance_Segmentation_Model/utils/poses/predefined_poses/cam_poses_level0.npy')
 
 bproc.init()
 
@@ -26,13 +27,50 @@ def get_norm_info(mesh_path):
 
     return 1/(2*radius)
 
+def get_cam_locs(cnos_cam_fpath):
+    """
+    Loads camera poses, adjusts their alignment, and scales them to a target format.
+
+    Args:
+        cnos_cam_fpath (str): Path to the file with camera poses.
+
+    Returns:
+        np.ndarray: Transformed and aligned camera positions.
+    """
+    # Load camera poses
+    cams = np.load(cnos_cam_fpath)
+    
+    # Adjust rotation and scale translation
+    cams[:, :3, 1:3] = -cams[:, :3, 1:3]
+    cams[:, :3, -1] *= 0.002  # Scale translation
+    
+    # Extract camera positions
+    pos = cams[:, :3, -1]
+    
+    # Align directions
+    dir_orig = np.array([0, 0, -1]) / np.linalg.norm([0, 0, -1])
+    dir_tgt = np.array([-1, -1, -1]) / np.linalg.norm([-1, -1, -1])
+    axis = np.cross(dir_orig, dir_tgt)
+    axis_mag = np.linalg.norm(axis)
+    dot = np.dot(dir_orig, dir_tgt)
+    skew = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
+    rot = np.eye(3) + skew + skew @ skew * ((1 - dot) / (axis_mag ** 2))
+    
+    # Apply rotation and normalize
+    aligned_pos = pos @ rot.T
+    aligned_pos /= aligned_pos[0, 0]  # Scale by first position
+    aligned_pos = np.vstack([aligned_pos[-1:], aligned_pos[:-1]])  # Move last to top
+    
+    return aligned_pos
+
+location = get_cam_locs(cnos_cam_fpath)
 
 for synset_id in os.listdir(shapenet_orig_path):
     synset_fpath = os.path.join(shapenet_orig_path, synset_id)
     if not os.path.isdir(synset_fpath) or '.' in synset_id:
         continue
     print('---------------------------'+str(synset_id)+'-------------------------------------')
-    for idx, source_id in enumerate(os.listdir(synset_fpath)):
+    for model_idx, source_id in enumerate(os.listdir(synset_fpath)):
         print('---------------------------'+str(source_id)+'-------------------------------------')
         save_synset_folder = os.path.join(output_dir, synset_id)
         if not os.path.exists(save_synset_folder):
@@ -41,8 +79,6 @@ for synset_id in os.listdir(shapenet_orig_path):
         save_fpath = os.path.join(save_synset_folder, source_id)
         if not os.path.exists(save_fpath):
             os.mkdir(save_fpath)
-        else:
-            continue
 
         cad_path = os.path.join(shapenet_orig_path, synset_id, source_id)
         obj_fpath = os.path.join(cad_path, 'models', 'model_normalized.obj')
@@ -52,63 +88,50 @@ for synset_id in os.listdir(shapenet_orig_path):
 
         scale = get_norm_info(obj_fpath)
 
-        bproc.clean_up()
+        for idx, loc in enumerate(location):
+            print('---------------------------view:'+str(idx)+'-------------------------------------')
+            bproc.clean_up()
 
-        obj = bproc.loader.load_shapenet(shapenet_orig_path, synset_id, source_id, move_object_origin=False)
-        obj.set_scale([scale, scale, scale])
-        obj.set_cp("category_id", idx)
+            obj = bproc.loader.load_shapenet(shapenet_orig_path, synset_id, source_id, move_object_origin=False)
+            obj.set_scale([scale, scale, scale])
+            obj.set_cp("category_id", model_idx)
 
-        # set light
-        light1 = bproc.types.Light()
-        light1.set_type("POINT")
-        light1.set_location([-3, -3, -3])
-        light1.set_energy(1000)
+            # set light
+            light_energy = 1000
+            light_scale = 3
+            light1 = bproc.types.Light()
+            light1.set_type("POINT")
+            light1.set_location([light_scale*v for v in loc])
+            light1.set_energy(light_energy)
 
-        light2 = bproc.types.Light()
-        light2.set_type("POINT")
-        light2.set_location([3, 3, 3])
-        light2.set_energy(1000)
-
-        location = [[-1, -1, -1], [1, 1, 1]]
-        # set camera locations around the object
-        for loc in location:
             # compute rotation based on vector going from location towards the location of object
             rotation_matrix = bproc.camera.rotation_from_forward_vec(obj.get_location() - loc)
             # add homog cam pose based on location and rotation
             cam2world_matrix = bproc.math.build_transformation_mat(loc, rotation_matrix)
             bproc.camera.add_camera_pose(cam2world_matrix)
 
-        bproc.renderer.set_max_amount_of_samples(1)
-        # render the whole pipeline
-        data = bproc.renderer.render()
-        # render nocs
-        data.update(bproc.renderer.render_nocs())
+            bproc.renderer.set_max_amount_of_samples(50)
+            # render the whole pipeline
+            data = bproc.renderer.render()
+            # render nocs
+            data.update(bproc.renderer.render_nocs())
 
-        # save rgb images
-        color_bgr_0 = data["colors"][0]
-        color_bgr_0[..., :3] = color_bgr_0[..., :3][..., ::-1]
-        cv2.imwrite(os.path.join(save_fpath,'rgb_'+str(0)+'.png'), color_bgr_0)
-        color_bgr_1 = data["colors"][1]
-        color_bgr_1[..., :3] = color_bgr_1[..., :3][..., ::-1]
-        cv2.imwrite(os.path.join(save_fpath,'rgb_'+str(1)+'.png'), color_bgr_1)
+            # save rgb images
+            color_bgr_0 = data["colors"][0]
+            color_bgr_0[..., :3] = color_bgr_0[..., :3][..., ::-1]
+            cv2.imwrite(os.path.join(save_fpath,'rgb_'+str(idx)+'.png'), color_bgr_0)
 
-        # save masks
-        mask_0 = data["nocs"][0][..., -1]
-        mask_1 = data["nocs"][1][..., -1]
-        cv2.imwrite(os.path.join(save_fpath,'mask_'+str(0)+'.png'), mask_0*255)
-        cv2.imwrite(os.path.join(save_fpath,'mask_'+str(1)+'.png'), mask_1*255)
+            # save masks
+            mask_0 = data["nocs"][0][..., -1]
+            cv2.imwrite(os.path.join(save_fpath,'mask_'+str(idx)+'.png'), mask_0*255)
 
-        # save nocs
-        xyz_0 = 2*(data["nocs"][0][..., :3] - 0.5)
-        xyz_1 = 2*(data["nocs"][1][..., :3] - 0.5)
-        # xyz need to rotate 90 degree to match CAD
-        rot90 = np.array([[1, 0, 0],
-                        [0, 0, 1],
-                        [0, -1, 0]])
-        h, w = xyz_0.shape[0], xyz_0.shape[1]
+            # save nocs
+            xyz_0 = 2*(data["nocs"][0][..., :3] - 0.5)
+            # xyz need to rotate 90 degree to match CAD
+            rot90 = np.array([[1, 0, 0],
+                            [0, 0, 1],
+                            [0, -1, 0]])
+            h, w = xyz_0.shape[0], xyz_0.shape[1]
 
-        xyz_0 = ((rot90 @ xyz_0.reshape(-1, 3).T).T).reshape(h, w, 3)
-        xyz_1 = ((rot90 @ xyz_1.reshape(-1, 3).T).T).reshape(h, w, 3)
-        np.save(os.path.join(save_fpath,'xyz_'+str(0)+'.npy'), xyz_0.astype(np.float16))
-        np.save(os.path.join(save_fpath,'xyz_'+str(1)+'.npy'), xyz_1.astype(np.float16))
-
+            xyz_0 = ((rot90 @ xyz_0.reshape(-1, 3).T).T).reshape(h, w, 3)
+            np.save(os.path.join(save_fpath,'xyz_'+str(idx)+'.npy'), xyz_0.astype(np.float16))

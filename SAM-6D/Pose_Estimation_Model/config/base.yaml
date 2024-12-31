@@ -16,6 +16,7 @@ lr_scheduler:
 model:
   coarse_npoint: 196
   fine_npoint: 2048
+  n_hypo: &n_hypo_value 15
   feature_extraction:
     vit_type: vit_base
     up_type: linear
@@ -40,6 +41,7 @@ model:
     loss_dis_thres: 0.15
     nproposal1: 6000
     nproposal2: 300
+    n_hypo: *n_hypo_value
   fine_point_matching:
     nblock: 3
     input_dim: 256
@@ -52,6 +54,7 @@ model:
     sim_type: cosine
     normalize_feat: True
     loss_dis_thres: 0.15
+    n_hypo: *n_hypo_value
 
 
 
@@ -71,8 +74,8 @@ train_dataset:
   augment_depth : False
 
 train_dataloader:
-  bs            : 196
-  num_workers   : 196
+  bs            : 1
+  num_workers   : 1
   shuffle       : True
   drop_last     : True
   pin_memory    : False
@@ -94,8 +97,8 @@ test_dataset:
 
 
 test_dataloader:
-  bs            : 1
-  num_workers   : 1
+  bs            : 2
+  num_workers   : 2
   shuffle       : False
   drop_last     : False
   pin_memory    : False

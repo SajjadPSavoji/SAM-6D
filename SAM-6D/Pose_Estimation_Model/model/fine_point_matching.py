@@ -35,8 +35,67 @@ class FinePointMatching(nn.Module):
                 replace_bg_token=True
             ))
         self.transformers = nn.ModuleList(self.transformers)
+        self.n_hypo = cfg.n_hypo
+
+    def repeat_and_merge_dim_0_1(self, tensor):
+        """
+        Unsqueeze a tensor along dimension 1, repeat it n_hypothesis times along dim 1,
+        and reshape the tensor so that dim 0 and dim 1 are merged.
+
+        Args:
+            tensor (torch.Tensor): The input tensor of any shape.
+            n_hypothesis (int): The number of times to repeat along dim 1.
+
+        Returns:
+            torch.Tensor: The modified tensor with dim 0 and dim 1 merged.
+        """
+        # Unsqueeze the tensor along dimension 1
+        unsqueezed_tensor = tensor.unsqueeze(1)
+        
+        # Repeat the tensor along dimension 1
+        repeated_tensor = unsqueezed_tensor.repeat(1, self.n_hypo, *[1] * (tensor.dim() - 1))
+        
+        # Merge dim 0 and dim 1
+        new_shape = (-1, *tensor.shape[1:])
+        reshaped_tensor = repeated_tensor.reshape(new_shape)
+        
+        return reshaped_tensor
+
+    def split_and_reshape_dim_0_1(self, tensor):
+        """
+        Unsqueeze the tensor on dim 1, then reshape it such that:
+        - The size on dim 1 becomes `n_hypothesis`
+        - The size on dim 0 is divided by `n_hypothesis`.
+
+        Args:
+            tensor (torch.Tensor): The input tensor of any shape.
+            n_hypothesis (int): The desired size for dim 1.
+
+        Returns:
+            torch.Tensor: The reshaped tensor.
+        """
+        # Calculate the new size for dim 0 after reshaping
+        new_dim0 = tensor.size(0) // self.n_hypo
+
+        # Unsqueeze the tensor on dim 1
+        unsqueezed_tensor = tensor.unsqueeze(1)
+
+        # Reshape the tensor to achieve the required dimensions
+        reshaped_tensor = unsqueezed_tensor.reshape(new_dim0, self.n_hypo, *tensor.shape[1:])
+
+        return reshaped_tensor
 
     def forward(self, p1, f1, geo1, fps_idx1, p2, f2, geo2, fps_idx2, radius, end_points):
+        p1       = self.repeat_and_merge_dim_0_1(p1)
+        f1       = self.repeat_and_merge_dim_0_1(f1)
+        geo1     = self.repeat_and_merge_dim_0_1(geo1)
+        fps_idx1 = self.repeat_and_merge_dim_0_1(fps_idx1)
+        p2       = self.repeat_and_merge_dim_0_1(p2)
+        f2       = self.repeat_and_merge_dim_0_1(f2)
+        geo2     = self.repeat_and_merge_dim_0_1(geo2)
+        fps_idx2 = self.repeat_and_merge_dim_0_1(fps_idx2)
+        radius   = self.repeat_and_merge_dim_0_1(radius)
+
         B = p1.size(0)
 
         init_R = end_points['init_R']
@@ -72,13 +131,21 @@ class FinePointMatching(nn.Module):
                 loss_str='fine'
             )
         else:
-            pred_R, pred_t, pred_pose_score = compute_fine_Rt(
+            pred_R, pred_t, pred_s = compute_fine_Rt(
                 atten_list[-1], p1, p2,
-                end_points['model'] / (radius.reshape(-1, 1, 1) + 1e-6),
+                self.repeat_and_merge_dim_0_1(end_points['model']) / (radius.reshape(-1, 1, 1) + 1e-6),
             )
+            
+            pred_R = self.split_and_reshape_dim_0_1(pred_R)
+            pred_t = self.split_and_reshape_dim_0_1(pred_t * (radius.reshape(-1, 1)+1e-6))
+            pred_s = self.split_and_reshape_dim_0_1(pred_s)
+            pred_s, idx = pred_s.max(1)
+            pred_R = torch.gather(pred_R, 1, idx.reshape(-1,1,1,1).repeat(1,1,3,3)).squeeze(1)
+            pred_t = torch.gather(pred_t, 1, idx.reshape(-1,1,1).repeat(1,1,3)).squeeze(1)
+
             end_points['pred_R'] = pred_R
-            end_points['pred_t'] = pred_t * (radius.reshape(-1, 1)+1e-6)
-            end_points['pred_pose_score'] = pred_pose_score
+            end_points['pred_t'] = pred_t
+            end_points['pred_pose_score'] = pred_s
 
         if self.return_feat:
             return end_points, self.out_proj(f1), self.out_proj(f2)

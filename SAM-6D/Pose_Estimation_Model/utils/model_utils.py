@@ -191,6 +191,7 @@ def compute_coarse_Rt(
     model_pts=None,
     n_proposal1=6000,
     n_proposal2=300,
+    n_hypo=1,
 ):
     WSVD = WeightedProcrustes()
 
@@ -240,10 +241,16 @@ def compute_coarse_Rt(
     dis = torch.sqrt(pairwise_distance(transformed_pts, expand_model_pts))
     dis = dis.min(2)[0].reshape(B, n_proposal2, -1)
     scores = weights1.unsqueeze(1).sum(2) / ((dis * weights1.unsqueeze(1)).sum(2) + + 1e-8)
-    idx = scores.max(1)[1]
-    pred_R = torch.gather(pred_rs, 1, idx.reshape(B,1,1,1).repeat(1,1,3,3)).squeeze(1)
-    pred_t = torch.gather(pred_ts, 1, idx.reshape(B,1,1,1).repeat(1,1,1,3)).squeeze(2).squeeze(1)
-    return pred_R, pred_t
+
+    # get top n_hypo poses
+    # idx = scores.max(1)[1]
+    # score = scores.max(1)[0]
+    idx = torch.topk(scores, n_hypo, dim=1, largest=True)[1]
+    score = torch.topk(scores, n_hypo, dim=1, largest=True)[0].reshape(-1)
+
+    pred_R = torch.gather(pred_rs, 1, idx.reshape(B,n_hypo,1,1).repeat(1,1,3,3)).reshape(-1, 3, 3)
+    pred_t = torch.gather(pred_ts, 1, idx.reshape(B,n_hypo,1,1).repeat(1,1,1,3)).squeeze(2).reshape(-1, 3)
+    return pred_R, pred_t, score
 
 
 

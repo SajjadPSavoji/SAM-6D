@@ -34,6 +34,7 @@ class CoarsePointMatching(nn.Module):
                 return_attention_scores=False,
             ))
         self.transformers = nn.ModuleList(self.transformers)
+        self.n_hypo = cfg.n_hypo
 
     def forward(self, p1, f1, geo1, p2, f2, geo2, radius, end_points):
         B = f1.size(0)
@@ -67,13 +68,14 @@ class CoarsePointMatching(nn.Module):
                 loss_str='coarse'
             )
         else:
-            init_R, init_t = compute_coarse_Rt(
+            init_R, init_t, init_s = compute_coarse_Rt(
                 atten_list[-1], p1, p2,
                 end_points['model'] / (radius.reshape(-1, 1, 1) + 1e-6),
-                self.cfg.nproposal1, self.cfg.nproposal2,
+                self.cfg.nproposal1, self.cfg.nproposal2, self.n_hypo,
             )
         end_points['init_R'] = init_R
         end_points['init_t'] = init_t
+        end_points['init_s'] = init_s
 
         if self.return_feat:
             return end_points, self.out_proj(f1), self.out_proj(f2)

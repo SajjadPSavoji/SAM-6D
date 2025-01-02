@@ -142,24 +142,19 @@ class ViTEncoder(nn.Module):
             dense_po = dense_po / (radius.reshape(-1, 1, 1) + 1e-6)
 
         else:
-            tem1_rgb = end_points['tem1_rgb']
-            tem1_choose = end_points['tem1_choose']
-            tem1_pts = end_points['tem1_pts']
-            tem2_rgb = end_points['tem2_rgb']
-            tem2_choose = end_points['tem2_choose']
-            tem2_pts = end_points['tem2_pts']
-
-            # normalize point clouds
-            dense_po = torch.cat([tem1_pts, tem2_pts], dim=1)
+            tem_rgb = end_points["tem_rgb"]
+            tem_choose = end_points["tem_choose"]
+            tem_pts = end_points["tem_pts"]
+            B, K, N, C = tem_pts.size()
+            dense_po = tem_pts.reshape(B, K * N, C)
             radius = torch.norm(dense_po, dim=2).max(1)[0]
             dense_pm = dense_pm / (radius.reshape(-1, 1, 1) + 1e-6)
-            tem1_pts = tem1_pts / (radius.reshape(-1, 1, 1) + 1e-6)
-            tem2_pts = tem2_pts / (radius.reshape(-1, 1, 1) + 1e-6)
+            tem_pts = tem_pts / (radius.reshape(-1, 1, 1, 1) + 1e-6)
 
             dense_po, dense_fo = self.get_obj_feats(
-                [tem1_rgb, tem2_rgb],
-                [tem1_pts, tem2_pts],
-                [tem1_choose, tem2_choose]
+                list(torch.unbind(tem_rgb, dim=1)),
+                list(torch.unbind(tem_pts, dim=1)),
+                list(torch.unbind(tem_choose, dim=1))
             )
 
         return dense_pm, dense_fm, dense_po, dense_fo, radius

@@ -66,6 +66,7 @@ class Dataset():
         self.n_sample_observed_point = cfg.n_sample_observed_point
         self.n_sample_model_point = cfg.n_sample_model_point
         self.n_sample_template_point = cfg.n_sample_template_point
+        self.n_template_view = cfg.n_template_view
 
 
         self.data_paths = [
@@ -228,9 +229,8 @@ class Dataset():
 
 
         # template
-        tem1_rgb, tem1_choose, tem1_pts = self._get_template(dataset_type, obj_id, 0)
-        tem2_rgb, tem2_choose, tem2_pts = self._get_template(dataset_type, obj_id, 1)
-        if tem1_rgb is None:
+        n_tem_rgb, n_tem_choose, n_tem_pts = self._get_n_templates(dataset_type, obj_id)
+        if n_tem_rgb is None:
             return None
 
 
@@ -258,7 +258,7 @@ class Dataset():
         pts = pts.reshape(-1, 3)[choose, :]
 
         target_pts = (pts - target_t[None, :]) @ target_R
-        tem_pts = np.concatenate([tem1_pts, tem2_pts], axis=0)
+        tem_pts = np.concatenate(n_tem_pts, axis=0)
         radius = np.max(np.linalg.norm(tem_pts, axis=1))
         flag = np.linalg.norm(target_pts, axis=1) < radius * 1.2 # for outlier removal
 
@@ -288,8 +288,8 @@ class Dataset():
 
         # rotation aug
         rand_R = get_random_rotation()
-        tem1_pts = tem1_pts @ rand_R
-        tem2_pts = tem2_pts @ rand_R
+        for view in range(self.n_template_view):
+            n_tem_pts[view] = n_tem_pts[view] @ rand_R
         target_R = target_R @ rand_R
 
         # translation aug
@@ -304,12 +304,9 @@ class Dataset():
             'rgb_choose': torch.IntTensor(rgb_choose).long(),
             'translation_label': torch.FloatTensor(target_t),
             'rotation_label': torch.FloatTensor(target_R),
-            'tem1_rgb': torch.FloatTensor(tem1_rgb),
-            'tem1_choose': torch.IntTensor(tem1_choose).long(),
-            'tem1_pts': torch.FloatTensor(tem1_pts),
-            'tem2_rgb': torch.FloatTensor(tem2_rgb),
-            'tem2_choose': torch.IntTensor(tem2_choose).long(),
-            'tem2_pts': torch.FloatTensor(tem2_pts),
+            'tem_rgb': torch.FloatTensor(np.stack(n_tem_rgb)),
+            'tem_choose': torch.IntTensor(np.stack(n_tem_choose)).long(),
+            'tem_pts': torch.FloatTensor(np.stack(n_tem_pts)),
             'K': torch.FloatTensor(K),
         }
         return ret_dict
@@ -366,6 +363,17 @@ class Dataset():
         choose = get_resize_rgb_choose(choose, [y1, y2, x1, x2], self.img_size)
 
         return rgb, choose, xyz
+
+    def _get_n_templates(self, type, obj_id):
+        n_rgb, n_choose, n_xyz = [],[],[]
+        for tem_idx in range(self.n_template_view):
+            rgb, choose, xyz = self._get_template(type, obj_id, tem_idx)
+            if rgb is None:
+                return None,None,None
+            n_rgb.append(rgb)
+            n_choose.append(choose)
+            n_xyz.append(xyz)
+        return  n_rgb, n_choose, n_xyz
 
     def _check_path(self, path_head):
         keys = [

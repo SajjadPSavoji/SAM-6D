@@ -69,10 +69,11 @@ train_dataset:
   rgb_mask_flag: True
   augment_depth : True
   augment_mask  : True
+  n_template_view: 42
 
 train_dataloader:
-  bs            : 55
-  num_workers   : 55
+  bs            : 1
+  num_workers   : 1
   shuffle       : True
   drop_last     : True
   pin_memory    : False

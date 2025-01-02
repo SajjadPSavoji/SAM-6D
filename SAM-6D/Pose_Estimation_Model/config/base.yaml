@@ -9,7 +9,7 @@ optimizer:
 
 lr_scheduler:
   type: WarmupCosineLR
-  max_iters: 600000
+  max_iters: 120000
   warmup_factor: 0.001
   warmup_iters: 1000
 
@@ -71,8 +71,8 @@ train_dataset:
   augment_mask  : True
 
 train_dataloader:
-  bs            : 55
-  num_workers   : 55
+  bs            : 90
+  num_workers   : 90
   shuffle       : True
   drop_last     : True
   pin_memory    : False
@@ -102,6 +102,6 @@ test_dataloader:
 
 
 rd_seed: 1
-training_epoch: 15
+training_epoch: 3
 iters_to_print: 50
 pretrain_dir: checkpoints/sam-6d-pem-base.pth

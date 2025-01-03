@@ -4,6 +4,8 @@ import os
 import cv2
 import numpy as np
 import trimesh
+import time
+import sys
 
 # set relative path of Data folder
 render_dir = os.path.dirname(os.path.abspath(__file__))
@@ -13,6 +15,36 @@ output_dir = os.path.join(render_dir, '../Data/MegaPose-Training-Data/MegaPose-S
 cnos_cam_fpath = os.path.join(render_dir, '../Instance_Segmentation_Model/utils/poses/predefined_poses/cam_poses_level0.npy')
 
 bproc.init()
+
+def custom_progress_bar(current, total, start_time):
+    """
+    Display a custom progress bar with ETA using `print`.
+    
+    Args:
+        current (int): Current progress (e.g., 5 out of 100).
+        total (int): Total iterations (e.g., 100).
+        start_time (float): The start time of the process.
+    """
+    # Calculate progress percentage
+    progress = current / total
+    bar_length = 40  # Length of the progress bar
+    filled_length = int(bar_length * progress)
+    bar = '█' * filled_length + '-' * (bar_length - filled_length)
+
+    # Calculate elapsed and ETA times
+    elapsed_time = time.time() - start_time
+    eta = (elapsed_time / (current + 1)) * (total - current - 1) if current > 0 else 0
+
+    # Format elapsed and ETA times
+    elapsed_formatted = time.strftime('%H:%M:%S', time.gmtime(elapsed_time))
+    eta_formatted = time.strftime('%H:%M:%S', time.gmtime(eta))
+
+    # Print progress bar
+    print(f'\r[{bar}] {current}/{total} - Elapsed: {elapsed_formatted} - ETA: {eta_formatted}')
+
+    # Print a new line at the end
+    if current == total - 1:
+        print()
 
 def get_norm_info(mesh_path):
     mesh = trimesh.load(mesh_path, force='mesh')
@@ -65,13 +97,24 @@ def get_cam_locs(cnos_cam_fpath):
 
 location = get_cam_locs(cnos_cam_fpath)
 
+total_objects = 0
 for synset_id in os.listdir(shapenet_orig_path):
     synset_fpath = os.path.join(shapenet_orig_path, synset_id)
     if not os.path.isdir(synset_fpath) or '.' in synset_id:
         continue
-    print('---------------------------'+str(synset_id)+'-------------------------------------')
+    total_objects += len(os.listdir(synset_fpath))
+start_time = time.time()
+cur_iter = -1
+
+for synset_id in os.listdir(shapenet_orig_path):
+    synset_fpath = os.path.join(shapenet_orig_path, synset_id)
+    if not os.path.isdir(synset_fpath) or '.' in synset_id:
+        continue
+    # print('---------------------------'+str(synset_id)+'-------------------------------------')
     for model_idx, source_id in enumerate(os.listdir(synset_fpath)):
-        print('---------------------------'+str(source_id)+'-------------------------------------')
+        # print('---------------------------'+str(source_id)+'-------------------------------------')
+        cur_iter += 1
+        custom_progress_bar(cur_iter, total_objects, start_time)
         save_synset_folder = os.path.join(output_dir, synset_id)
         if not os.path.exists(save_synset_folder):
             os.makedirs(save_synset_folder)
@@ -86,10 +129,16 @@ for synset_id in os.listdir(shapenet_orig_path):
         if not os.path.exists(obj_fpath):
             continue
 
+        # don't render again
+        rgb42path = os.path.join(save_fpath,'rgb_'+str(41)+'.png')
+        if os.path.exists(rgb42path):
+            print('--already rendered-'+str(source_id)+'-------------------------------------')
+            continue
+
         scale = get_norm_info(obj_fpath)
 
         for idx, loc in enumerate(location):
-            print('---------------------------view:'+str(idx)+'-------------------------------------')
+            # print('---------------------------view:'+str(idx)+'-------------------------------------')
             bproc.clean_up()
 
             obj = bproc.loader.load_shapenet(shapenet_orig_path, synset_id, source_id, move_object_origin=False)

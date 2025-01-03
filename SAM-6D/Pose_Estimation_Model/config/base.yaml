@@ -72,8 +72,8 @@ train_dataset:
   n_template_view: 42
 
 train_dataloader:
-  bs            : 1
-  num_workers   : 1
+  bs            : 90
+  num_workers   : 90
   shuffle       : True
   drop_last     : True
   pin_memory    : False

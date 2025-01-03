@@ -16,7 +16,7 @@ lr_scheduler:
 model:
   coarse_npoint: 196
   fine_npoint: 2048
-  n_times_refine: 5
+  n_times_refine: 10
   feature_extraction:
     vit_type: vit_base
     up_type: linear

@@ -19,6 +19,7 @@ class Net(nn.Module):
         self.geo_embedding = GeometricStructureEmbedding(cfg.geo_embedding)
         self.coarse_point_matching = CoarsePointMatching(cfg.coarse_point_matching)
         self.fine_point_matching = FinePointMatching(cfg.fine_point_matching)
+        self.n_times_refine = self.cfg.n_times_refine
 
     def forward(self, end_points):
         dense_pm, dense_fm, dense_po, dense_fo, radius = self.feature_extraction(end_points)
@@ -44,11 +45,14 @@ class Net(nn.Module):
         )
 
         # fine_point_matching
-        end_points = self.fine_point_matching(
-            dense_pm, dense_fm, geo_embedding_m, fps_idx_m,
-            dense_po, dense_fo, geo_embedding_o, fps_idx_o,
-            radius, end_points
-        )
+        for _ in range(self.n_times_refine):
+            end_points = self.fine_point_matching(
+                dense_pm, dense_fm, geo_embedding_m, fps_idx_m,
+                dense_po, dense_fo, geo_embedding_o, fps_idx_o,
+                radius, end_points
+            )
+            end_points['init_R'] = end_points['pred_R']
+            end_points['init_t'] = end_points['pred_t'] / (radius.reshape(-1, 1)+1e-6)
 
         return end_points
 

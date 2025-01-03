@@ -53,14 +53,40 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 import os
+from sklearn.decomposition import PCA
+def features_to_colors(features):
+    """
+    Convert high-dimensional feature matrix to RGB colors, considering cosine similarity.
+    
+    Args:
+        features (numpy.ndarray): Feature matrix of shape (N, D).
+        
+    Returns:
+        colors (numpy.ndarray): RGB colors of shape (N, 3).
+    """
+    # Normalize features to unit length for cosine similarity
+    norms = np.linalg.norm(features, axis=1, keepdims=True) + 1e-6  # Avoid division by zero
+    features = features / norms  # Normalize to unit length
+    
+    # Reduce to 3 dimensions if necessary
+    if features.shape[1] > 3:
+        pca = PCA(n_components=3)
+        features = pca.fit_transform(features)
+    
+    # Normalize reduced features to [0, 1]
+    features = (features - features.min(axis=0)) / (features.ptp(axis=0) + 1e-6)
+    
+    # Map directly to RGB
+    colors = features
+    return colors
 
-def visualize_points_3d(tem_pts, points_name, num_frames=360, color='blue'):
+def visualize_points_3d(tem_pts, points_name, num_frames=360, color='blue', s=1):
     output_video_path=f'{points_name}_visualization.mp4'
     fig = plt.figure(figsize=(10, 8))
     ax = fig.add_subplot(111, projection='3d')
 
     # Scatter plot of points
-    ax.scatter(tem_pts[:, 0], tem_pts[:, 1], tem_pts[:, 2], c=color, s=1)
+    ax.scatter(tem_pts[:, 0], tem_pts[:, 1], tem_pts[:, 2], c=color, s=s)
 
     # Hide grid and axes
     ax.grid(False)
@@ -238,6 +264,7 @@ class Dataset():
         return np.random.choice(pool)
 
     def read_data(self, index):
+        index = 10
         path_head = self.dataset_paths[index]
         dataset_type = path_head.split('/')[0][9:]
         if not self._check_path(os.path.join(self.data_dir, path_head)):

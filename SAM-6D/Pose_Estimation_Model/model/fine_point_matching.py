@@ -7,6 +7,7 @@ from model_utils import compute_feature_similarity, compute_fine_Rt
 from loss_utils import compute_correspondence_loss
 from pointnet2_utils import QueryAndGroup
 from pytorch_utils import SharedMLP, Conv1d
+from vis_utils import visualize_points_3d
 
 
 class FinePointMatching(nn.Module):
@@ -71,6 +72,16 @@ class FinePointMatching(nn.Module):
                 dis_thres=self.cfg.loss_dis_thres,
                 loss_str='fine'
             )
+
+            # visualize model bg scores
+            atten = atten_list[-1]
+            scores = torch.softmax(atten, dim=2) * torch.softmax(atten, dim=1)
+            bg_scores1 = scores[:,1:,0]
+            bg_scores2 = scores[:,0,1:]
+            gt_pts = (p1-gt_t.unsqueeze(1))@gt_R
+            visualize_points_3d(gt_pts.squeeze(0).cpu().numpy(), "dense_pm_bg",c=bg_scores1.squeeze(0).cpu().detach().numpy(), s=1, cmap="rainbow")
+            visualize_points_3d(p2.squeeze(0).cpu().numpy(), "dense_po_bg",c=bg_scores2.squeeze(0).cpu().detach().numpy(), s=1, cmap="rainbow")
+
         else:
             pred_R, pred_t, pred_pose_score = compute_fine_Rt(
                 atten_list[-1], p1, p2,

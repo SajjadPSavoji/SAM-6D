@@ -8,7 +8,7 @@ from model_utils import (
     compute_coarse_Rt,
 )
 from loss_utils import compute_correspondence_loss
-
+from vis_utils import visualize_points_3d
 
 
 class CoarsePointMatching(nn.Module):
@@ -66,6 +66,16 @@ class CoarsePointMatching(nn.Module):
                 dis_thres=self.cfg.loss_dis_thres,
                 loss_str='coarse'
             )
+
+            # visualize model bg scores
+            atten = atten_list[-1]
+            scores = torch.softmax(atten, dim=2) * torch.softmax(atten, dim=1)
+            bg_scores1 = scores[:,1:,0]
+            bg_scores2 = scores[:,0,1:]
+            gt_pts = (p1-gt_t.unsqueeze(1))@gt_R
+            visualize_points_3d(gt_pts.squeeze(0).cpu().numpy(), "sparse_pm_bg",c=bg_scores1.squeeze(0).cpu().detach().numpy(), s=5, cmap="rainbow")
+            visualize_points_3d(p2.squeeze(0).cpu().numpy(), "sparse_po_bg",c=bg_scores2.squeeze(0).cpu().detach().numpy(), s=5, cmap="rainbow")
+
         else:
             init_R, init_t = compute_coarse_Rt(
                 atten_list[-1], p1, p2,

@@ -49,76 +49,6 @@ from augmentation_utils import (
     MaskLineSplit,
 )
 
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-import numpy as np
-import os
-from sklearn.decomposition import PCA
-def features_to_colors(features):
-    """
-    Convert high-dimensional feature matrix to RGB colors, considering cosine similarity.
-    
-    Args:
-        features (numpy.ndarray): Feature matrix of shape (N, D).
-        
-    Returns:
-        colors (numpy.ndarray): RGB colors of shape (N, 3).
-    """
-    # Normalize features to unit length for cosine similarity
-    norms = np.linalg.norm(features, axis=1, keepdims=True) + 1e-6  # Avoid division by zero
-    features = features / norms  # Normalize to unit length
-    
-    # Reduce to 3 dimensions if necessary
-    if features.shape[1] > 3:
-        pca = PCA(n_components=3)
-        features = pca.fit_transform(features)
-    
-    # Normalize reduced features to [0, 1]
-    features = (features - features.min(axis=0)) / (features.ptp(axis=0) + 1e-6)
-    
-    # Map directly to RGB
-    colors = features
-    return colors
-
-def visualize_points_3d(tem_pts, points_name, num_frames=360, color='blue', s=1):
-    output_video_path=f'{points_name}_visualization.mp4'
-    fig = plt.figure(figsize=(10, 8))
-    ax = fig.add_subplot(111, projection='3d')
-
-    # Scatter plot of points
-    ax.scatter(tem_pts[:, 0], tem_pts[:, 1], tem_pts[:, 2], c=color, s=s)
-
-    # Hide grid and axes
-    ax.grid(False)
-    ax.axis('off')
-
-    # Configure axes limits for better visibility
-    max_extent = np.max(np.abs(tem_pts))
-    ax.set_xlim([-max_extent, max_extent])
-    ax.set_ylim([-max_extent, max_extent])
-    ax.set_zlim([-max_extent, max_extent])
-
-    # Rotate and save each frame
-    from matplotlib.animation import FuncAnimation
-
-    def update(frame):
-        ax.view_init(elev=30, azim=frame)
-        return fig,
-
-    anim = FuncAnimation(fig, update, frames=num_frames, interval=100)
-
-    # Save as a video
-    anim.save(output_video_path, fps=30, writer='ffmpeg')
-    print(f"Visualization saved to {output_video_path}")
-    # #################################################
-    # This is how to use the vis code
-    # target_pts = (pts - target_t[None, :]) @ target_R
-    # print(len(target_pts), len(tem_pts))
-    # visualize_points_3d(tem_pts, "templates",color="black")
-    # visualize_points_3d(target_pts, "observation", color="blue")
-    # exit()
-    # ##################################################
-
 class Dataset():
     def __init__(self, cfg, num_img_per_epoch=-1):
         self.cfg = cfg
@@ -264,7 +194,7 @@ class Dataset():
         return np.random.choice(pool)
 
     def read_data(self, index):
-        index = 10
+        index = 20
         path_head = self.dataset_paths[index]
         dataset_type = path_head.split('/')[0][9:]
         if not self._check_path(os.path.join(self.data_dir, path_head)):

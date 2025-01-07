@@ -7,7 +7,7 @@ from fine_point_matching import FinePointMatching
 from transformer import GeometricStructureEmbedding
 from model_utils import sample_pts_feats
 
-from training_dataset import visualize_points_3d, features_to_colors
+from vis_utils import visualize_points_3d, features_to_colors
 
 class Net(nn.Module):
     def __init__(self, cfg):
@@ -50,8 +50,8 @@ class Net(nn.Module):
         gt_t = end_points['translation_label'] / (radius.reshape(-1, 1)+1e-6)
         gt_pts = (sparse_pm-gt_t.unsqueeze(1))@gt_r
         print(len(gt_pts.squeeze(0)), len(sparse_po.squeeze(0)))
-        visualize_points_3d(gt_pts.squeeze(0).cpu().numpy(), "sparse_pm",color=color_m, s=5)
-        visualize_points_3d(sparse_po.squeeze(0).cpu().numpy(), "sparse_po",color=color_o,s=5)
+        visualize_points_3d(gt_pts.squeeze(0).cpu().numpy(), "sparse_pm",c=color_m, s=5)
+        visualize_points_3d(sparse_po.squeeze(0).cpu().numpy(), "sparse_po",c=color_o,s=5)
 
         # fine_point_matching
         end_points, of1, of2 = self.fine_point_matching(
@@ -64,11 +64,9 @@ class Net(nn.Module):
         color_o = features_to_colors(of2.squeeze(0).cpu().detach().numpy()[1:, :])
         gt_pts = (dense_pm-gt_t.unsqueeze(1))@gt_r
         print(len(gt_pts.squeeze(0)), len(dense_po.squeeze(0)))
-        visualize_points_3d(gt_pts.squeeze(0).cpu().numpy(), "dense_pm",color=color_m)
-        visualize_points_3d(dense_po.squeeze(0).cpu().numpy(), "dense_po",color=color_o)
+        visualize_points_3d(gt_pts.squeeze(0).cpu().numpy(), "dense_pm",c=color_m)
+        visualize_points_3d(dense_po.squeeze(0).cpu().numpy(), "dense_po",c=color_o)
 
         breakpoint()
-
-
         return end_points
 

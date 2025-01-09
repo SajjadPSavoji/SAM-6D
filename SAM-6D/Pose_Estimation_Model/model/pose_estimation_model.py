@@ -64,7 +64,7 @@ class Net(nn.Module):
 
    
         # interpolate course bg_scores to all points
-        k = 8
+        k = 196
         # all_scores1 = knn_linear_falloff_interpolate_3d(bg_scores1, sparse_pm, all_pm, k)
         all_scores2 = knn_linear_falloff_interpolate_3d(bg_scores2, sparse_po, all_po, k)
         # sample n_fine poits from all points using inverse of scores so the lower the score, the higher the probability
@@ -97,6 +97,7 @@ class Net(nn.Module):
         # visualize_points_3d(dense_po.squeeze(0).cpu().numpy(), "dense_po",c=color_o, s=1)
         # visualize_points_3d(gt_pts.squeeze(0).cpu().numpy(), f"dense_pm_bg_L_Last",c=bg_scores1.squeeze(0).cpu().detach().numpy(), s=1, cmap="rainbow")
         # visualize_points_3d(dense_po.squeeze(0).cpu().numpy(), f"dense_po_bg_L_Last",c=bg_scores2.squeeze(0).cpu().detach().numpy(), s=1, cmap="rainbow")
+        # breakpoint()
 
         return end_points
 

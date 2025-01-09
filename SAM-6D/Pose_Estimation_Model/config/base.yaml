@@ -94,8 +94,8 @@ test_dataset:
 
 
 test_dataloader:
-  bs            : 16
-  num_workers   : 16
+  bs            : 32
+  num_workers   : 32
   shuffle       : False
   drop_last     : False
   pin_memory    : False

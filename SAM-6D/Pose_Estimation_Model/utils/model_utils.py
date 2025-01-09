@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+import math
 
 import numpy as np
 
@@ -8,6 +9,8 @@ from pointnet2_utils import (
     gather_operation,
     furthest_point_sample,
 )
+
+from vis_utils import visualize_points_3d, features_to_colors
 
 
 class LayerNorm2d(nn.Module):
@@ -382,3 +385,173 @@ class WeightedProcrustes(nn.Module):
             ref_centroid=ref_centroid
         )
 
+
+
+def knn_linear_falloff_interpolate_3d(
+    scores: torch.Tensor,         # (B, N_coarse)
+    sparse_points: torch.Tensor,  # (B, N_coarse, 3)
+    all_points: torch.Tensor,     # (B, N_all, 3)
+    K: int = 8
+) -> torch.Tensor:
+    """
+    KNN-based interpolation where each neighbor's contribution
+    is a linear falloff based on distance:
+
+        w_i = (D_max - d_i) / sum_j (D_max - d_j)
+
+    d_i = distance to neighbor i among the top-K neighbors,
+    D_max = max(d_j) among those K neighbors.
+
+    Args:
+        scores:        (B, N_coarse) scores for each sparse point
+        sparse_points: (B, N_coarse, 3) coords of the coarse points
+        all_points:    (B, N_all, 3) query points to upsample
+        K:             number of neighbors to consider
+    Returns:
+        interpolated_scores: (B, N_all) upsampled scores
+    """
+
+    B, N_coarse, _ = sparse_points.shape
+    _, N_all, _    = all_points.shape
+
+    # -------------------------------------------------
+    # 1) Compute pairwise distances
+    #    dist[b, i, j] => distance from all_points[b, i] to sparse_points[b, j]
+    #    => shape (B, N_all, N_coarse)
+    # -------------------------------------------------
+    diff = all_points.unsqueeze(2) - sparse_points.unsqueeze(1)  # (B, N_all, N_coarse, 3)
+    dist = diff.norm(dim=-1)                                     # (B, N_all, N_coarse)
+
+    # -------------------------------------------------
+    # 2) Top-K nearest neighbors
+    #    => shapes: topk_dist, topk_idx = (B, N_all, K)
+    # -------------------------------------------------
+    topk_dist, topk_idx = torch.topk(dist, k=K, dim=-1, largest=False)
+
+    # -------------------------------------------------
+    # 3) Gather the corresponding scores
+    #    neighbor_scores => shape (B, N_all, K)
+    # -------------------------------------------------
+    scores_expanded = scores.unsqueeze(1).expand(B, N_all, N_coarse)  # (B, N_all, N_coarse)
+    neighbor_scores = torch.gather(scores_expanded, 2, topk_idx)      # (B, N_all, K)
+
+    # -------------------------------------------------
+    # 4) Compute weights = (D_max - d_i) / sum_j(D_max - d_j)
+    #    - D_max is the largest distance among the K neighbors
+    # -------------------------------------------------
+    # shape => (B, N_all, 1)
+    max_dist, _ = topk_dist.max(dim=-1, keepdim=True)  
+
+    # w_i = (D_max - dist_i)
+    # shape => (B, N_all, K)
+    weights = max_dist - topk_dist
+    weights = torch.clamp(weights, min=0.0)  # just to be safe
+
+    # sum across the K neighbors => shape (B, N_all, 1)
+    denom = weights.sum(dim=-1, keepdim=True).clamp_min(1e-10)
+
+    # normalize => shape (B, N_all, K)
+    weights = weights / denom
+
+    # -------------------------------------------------
+    # 5) Weighted sum => (B, N_all)
+    # -------------------------------------------------
+    interpolated_scores = (neighbor_scores * weights).sum(dim=-1)
+
+    return interpolated_scores
+
+
+def sample_pts_and_feats_nonuniform(
+    all_po: torch.Tensor,       # (B, N, 3)
+    all_fo: torch.Tensor,       # (B, N, F)
+    all_scores2: torch.Tensor,  # (B, N) per-point scores (arbitrary range)
+    fps_idx_o: torch.Tensor,    # (B, M) indices to concat at the end
+    fine_npoint: int
+):
+    """
+    1) Normalize all_scores2 per batch into [0,1].
+    2) Exclude fps_idx_o from normal sampling by setting their (normalized) score to 1.0 => zero prob after (1 - score).
+    3) Sample 'fine_npoint - M' points using cumsum + searchsorted (inverse transform sampling).
+    4) Concatenate the points/features from fps_idx_o onto the sampled set.
+    5) Return the new index tensor (fps_idx_chosen_po) that corresponds to those appended points.
+    
+    Returns:
+        final_po:           (B, fine_npoint, 3)
+        final_fo:           (B, fine_npoint, F)
+        fps_idx_chosen_po:  (B, M)   indices in [fine_npoint-M, fine_npoint-1]
+                                    telling you where those appended points appear
+    """
+    B, N, _ = all_po.shape
+    D = all_fo.shape[-1]
+    M = fps_idx_o.shape[-1]
+    device = all_po.device
+    
+    # We plan to sample 'fine_npoint - M' points, then append M points => total 'fine_npoint'
+    # (Ensure fine_npoint >= M)
+    sample_n = fine_npoint - M
+    assert sample_n >= 0, f"fine_npoint={fine_npoint} must be >= M={M}"
+
+    # --------------------------------------------------------
+    # 1) Normalize 'all_scores2' per batch to [0,1].
+    #    (in case they are not already in [0,1])
+    # --------------------------------------------------------
+    eps_norm = 1e-10
+    # shape: (B, 1)
+    scores_min = all_scores2.min(dim=1, keepdim=True).values
+    scores_max = all_scores2.max(dim=1, keepdim=True).values
+    scores_range = (scores_max - scores_min).clamp_min(eps_norm)
+    # shape: (B, N)
+    scores_norm = (all_scores2 - scores_min) / scores_range
+    
+    # --------------------------------------------------------
+    # 2) Force excluded points to have zero probability by
+    #    setting their normalized score = 1.0 => 1 - 1.0 = 0.
+    # --------------------------------------------------------
+    scores_clone = scores_norm.clone()
+    scores_clone.scatter_(1, fps_idx_o.long(), 1.0)  # set excluded indices to 1
+    
+    # --------------------------------------------------------
+    # 3) Build probability distribution via p = (1 - score)
+    #    and sample 'sample_n' points with inverse transform
+    #    sampling (cumsum + searchsorted).
+    # --------------------------------------------------------
+    eps = 1e-10
+    prob = (1.0 - scores_clone).clamp_min(eps)  # shape (B, N)
+    cumsum_prob = torch.cumsum(prob, dim=1)    # shape (B, N)
+    cumsum_prob /= (cumsum_prob[:, -1].unsqueeze(1).contiguous()+eps)
+
+    # random values ~ U[0,1], shape (B, sample_n)
+    rand_vals = torch.rand(B, sample_n, device=device)
+    
+    # indices from [0..N-1], shape (B, sample_n)
+    idx = torch.searchsorted(cumsum_prob, rand_vals)
+
+    # Gather chosen points/features
+    idx_expanded_po = idx.unsqueeze(-1).expand(-1, -1, 3)  # [B, sample_n, 3]
+    idx_expanded_fo = idx.unsqueeze(-1).expand(-1, -1, D)  # [B, sample_n, F]
+    chosen_po = torch.gather(all_po, dim=1, index=idx_expanded_po)  # [B, sample_n, 3]
+    chosen_fo = torch.gather(all_fo, dim=1, index=idx_expanded_fo)  # [B, sample_n, F]
+    
+    # --------------------------------------------------------
+    # 4) Concatenate the 'fps_idx_o' points/features at the end
+    # --------------------------------------------------------
+    # gather fps points, shape => (B, M, 3), (B, M, F)
+    fps_idx_expanded_po = fps_idx_o.unsqueeze(-1).expand(-1, -1, 3)  # [B, M, 3]
+    fps_idx_expanded_fo = fps_idx_o.unsqueeze(-1).expand(-1, -1, D)  # [B, M, F]
+    fps_po = torch.gather(all_po, dim=1, index=fps_idx_expanded_po.long())  # [B, M, 3]
+    fps_fo = torch.gather(all_fo, dim=1, index=fps_idx_expanded_fo.long())  # [B, M, F]
+    
+    # final shapes => (B, sample_n + M, 3/ F) = (B, fine_npoint, 3/ F)
+    final_po = torch.cat([chosen_po, fps_po], dim=1)
+    final_fo = torch.cat([chosen_fo, fps_fo], dim=1)
+    
+    # --------------------------------------------------------
+    # 5) Build a new index tensor that says:
+    #    "The appended M points now live at indices
+    #     [sample_n .. sample_n + M - 1] in each batch."
+    # --------------------------------------------------------
+    fps_idx_chosen_po = torch.arange(
+        sample_n, sample_n + M, device=device
+    ).unsqueeze(0).expand(B, -1)  # (B, M)
+
+    return final_po, final_fo, fps_idx_chosen_po.int()

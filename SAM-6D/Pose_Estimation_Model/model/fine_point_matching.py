@@ -73,15 +73,13 @@ class FinePointMatching(nn.Module):
                 loss_str='fine'
             )
 
-            # visualize model bg scores
-            for idx , atten in enumerate(atten_list):
-                atten = atten_list[-1]
-                scores = torch.softmax(atten, dim=2) * torch.softmax(atten, dim=1)
-                bg_scores1 = scores[:,1:,0]
-                bg_scores2 = scores[:,0,1:]
-                gt_pts = (p1-gt_t.unsqueeze(1))@gt_R
-                visualize_points_3d(gt_pts.squeeze(0).cpu().numpy(), f"dense_pm_bg_L{idx}",c=bg_scores1.squeeze(0).cpu().detach().numpy(), s=1, cmap="rainbow")
-                visualize_points_3d(p2.squeeze(0).cpu().numpy(), f"dense_po_bg_L{idx}",c=bg_scores2.squeeze(0).cpu().detach().numpy(), s=1, cmap="rainbow")
+            # # visualize model bg scores
+            # for idx , atten in enumerate(atten_list):
+            #     bg_scores1 = torch.softmax(atten, dim=2)[:,1:,0]
+            #     bg_scores2 = torch.softmax(atten, dim=1)[:,0,1:]
+            #     gt_pts = (p1-gt_t.unsqueeze(1))@gt_R
+            #     visualize_points_3d(gt_pts.squeeze(0).cpu().numpy(), f"dense_pm_bg_L{idx}",c=bg_scores1.squeeze(0).cpu().detach().numpy(), s=1, cmap="rainbow")
+            #     visualize_points_3d(p2.squeeze(0).cpu().numpy(), f"dense_po_bg_L{idx}",c=bg_scores2.squeeze(0).cpu().detach().numpy(), s=1, cmap="rainbow")
 
         else:
             pred_R, pred_t, pred_pose_score = compute_fine_Rt(
@@ -92,8 +90,13 @@ class FinePointMatching(nn.Module):
             end_points['pred_t'] = pred_t * (radius.reshape(-1, 1)+1e-6)
             end_points['pred_pose_score'] = pred_pose_score
 
+        # return bg scores, used for dynamic fine sampling
+        atten = atten_list[-1]
+        bg_scores1 = torch.softmax(atten, dim=2)[:,1:,0]
+        bg_scores2 = torch.softmax(atten, dim=1)[:,0,1:]
+
         if self.return_feat:
-            return end_points, self.out_proj(f1), self.out_proj(f2)
+            return end_points, bg_scores1, bg_scores2, self.out_proj(f1), self.out_proj(f2)
         else:
             return end_points
 

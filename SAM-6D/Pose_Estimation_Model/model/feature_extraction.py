@@ -140,6 +140,8 @@ class ViTEncoder(nn.Module):
             radius = torch.norm(dense_po, dim=2).max(1)[0]
             dense_pm = dense_pm / (radius.reshape(-1, 1, 1) + 1e-6)
             dense_po = dense_po / (radius.reshape(-1, 1, 1) + 1e-6)
+            all_po = dense_po
+            all_fo = dense_fo
 
         else:
             tem1_rgb = end_points['tem1_rgb']
@@ -156,13 +158,13 @@ class ViTEncoder(nn.Module):
             tem1_pts = tem1_pts / (radius.reshape(-1, 1, 1) + 1e-6)
             tem2_pts = tem2_pts / (radius.reshape(-1, 1, 1) + 1e-6)
 
-            dense_po, dense_fo = self.get_obj_feats(
+            all_po, all_fo = self.get_obj_feats(
                 [tem1_rgb, tem2_rgb],
                 [tem1_pts, tem2_pts],
                 [tem1_choose, tem2_choose]
             )
 
-        return dense_pm, dense_fm, dense_po, dense_fo, radius
+        return dense_pm, dense_fm, all_po, all_fo, radius
 
     def get_img_feats(self, img, choose):
         return get_chosen_pixel_feats(self.rgb_net(img)[0], choose)
@@ -178,7 +180,4 @@ class ViTEncoder(nn.Module):
         tem_pts = torch.cat(tem_pts_list, dim=1)
         tem_feat = torch.cat(tem_feat_list, dim=1)
 
-        return sample_pts_feats(tem_pts, tem_feat, npoint)
-
-
-
+        return tem_pts, tem_feat

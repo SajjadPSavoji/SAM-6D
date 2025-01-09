@@ -67,15 +67,13 @@ class CoarsePointMatching(nn.Module):
                 loss_str='coarse'
             )
 
-            # visualize model bg scores
-            for idx , atten in enumerate(atten_list):
-                atten = atten_list[-1]
-                scores = torch.softmax(atten, dim=2) * torch.softmax(atten, dim=1)
-                bg_scores1 = scores[:,1:,0]
-                bg_scores2 = scores[:,0,1:]
-                gt_pts = (p1-gt_t.unsqueeze(1))@gt_R
-                visualize_points_3d(gt_pts.squeeze(0).cpu().numpy(), f"sparse_pm_bg_L{idx}",c=bg_scores1.squeeze(0).cpu().detach().numpy(), s=5, cmap="rainbow")
-                visualize_points_3d(p2.squeeze(0).cpu().numpy(), f"sparse_po_bg_L{idx}",c=bg_scores2.squeeze(0).cpu().detach().numpy(), s=5, cmap="rainbow")
+            # # visualize model bg scores
+            # for idx , atten in enumerate(atten_list):
+            #     bg_scores1 = torch.softmax(atten, dim=2)[:,1:,0]
+            #     bg_scores2 = torch.softmax(atten, dim=1)[:,0,1:]
+            #     gt_pts = (p1-gt_t.unsqueeze(1))@gt_R
+            #     visualize_points_3d(gt_pts.squeeze(0).cpu().numpy(), f"sparse_pm_bg_L{idx}",c=bg_scores1.squeeze(0).cpu().detach().numpy(), s=5, cmap="rainbow")
+            #     visualize_points_3d(p2.squeeze(0).cpu().numpy(), f"sparse_po_bg_L{idx}",c=bg_scores2.squeeze(0).cpu().detach().numpy(), s=5, cmap="rainbow")
 
         else:
             init_R, init_t = compute_coarse_Rt(
@@ -86,8 +84,12 @@ class CoarsePointMatching(nn.Module):
         end_points['init_R'] = init_R
         end_points['init_t'] = init_t
 
-        if self.return_feat:
-            return end_points, self.out_proj(f1), self.out_proj(f2)
-        else:
-            return end_points
+        # return bg scores, used for dynamic fine sampling
+        atten = atten_list[-1]
+        bg_scores1 = torch.softmax(atten, dim=2)[:,1:,0]
+        bg_scores2 = torch.softmax(atten, dim=1)[:,0,1:]
 
+        if self.return_feat:
+            return end_points, bg_scores1, bg_scores2, self.out_proj(f1), self.out_proj(f2)
+        else:
+            return end_points, bg_scores1, bg_scores2

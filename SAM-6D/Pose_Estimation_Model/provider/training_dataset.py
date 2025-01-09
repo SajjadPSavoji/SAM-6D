@@ -194,7 +194,7 @@ class Dataset():
         return np.random.choice(pool)
 
     def read_data(self, index):
-        index = 20
+        index = 100
         path_head = self.dataset_paths[index]
         dataset_type = path_head.split('/')[0][9:]
         if not self._check_path(os.path.join(self.data_dir, path_head)):

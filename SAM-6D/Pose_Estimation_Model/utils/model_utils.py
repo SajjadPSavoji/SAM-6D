@@ -510,13 +510,16 @@ def sample_pts_and_feats_nonuniform(
     scores_clone = scores_norm.clone()
     scores_clone.scatter_(1, fps_idx_o.long(), 1.0)  # set excluded indices to 1
     
+    
     # --------------------------------------------------------
     # 3) Build probability distribution via p = (1 - score)
     #    and sample 'sample_n' points with inverse transform
     #    sampling (cumsum + searchsorted).
     # --------------------------------------------------------
     eps = 1e-10
+    alpha = 2
     prob = (1.0 - scores_clone).clamp_min(eps)  # shape (B, N)
+    prob = prob**alpha 
     cumsum_prob = torch.cumsum(prob, dim=1)    # shape (B, N)
     cumsum_prob /= (cumsum_prob[:, -1].unsqueeze(1).contiguous()+eps)
 

@@ -159,7 +159,7 @@ for synset_id in os.listdir(shapenet_orig_path):
             cam2world_matrix = bproc.math.build_transformation_mat(loc, rotation_matrix)
             bproc.camera.add_camera_pose(cam2world_matrix)
 
-            bproc.renderer.set_max_amount_of_samples(50)
+            bproc.renderer.set_max_amount_of_samples(1)
             # render the whole pipeline
             data = bproc.renderer.render()
             # render nocs

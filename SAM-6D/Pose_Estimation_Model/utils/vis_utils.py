@@ -60,11 +60,4 @@ def visualize_points_3d(tem_pts, points_name, num_frames=360, **kwargs):
     # Save as a video
     anim.save(output_video_path, fps=30, writer='ffmpeg')
     print(f"Visualization saved to {output_video_path}")
-    # #################################################
-    # This is how to use the vis code
-    # target_pts = (pts - target_t[None, :]) @ target_R
-    # print(len(target_pts), len(tem_pts))
-    # visualize_points_3d(tem_pts, "templates",color="black")
-    # visualize_points_3d(target_pts, "observation", color="blue")
-    # exit()
-    # ##################################################
+    plt.close()

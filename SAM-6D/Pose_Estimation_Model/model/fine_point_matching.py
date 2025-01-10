@@ -73,15 +73,15 @@ class FinePointMatching(nn.Module):
                 loss_str='fine'
             )
 
-            # visualize model bg scores
-            for idx , atten in enumerate(atten_list):
-                atten = atten_list[-1]
-                scores = torch.softmax(atten, dim=2) * torch.softmax(atten, dim=1)
-                bg_scores1 = scores[:,1:,0]
-                bg_scores2 = scores[:,0,1:]
-                gt_pts = (p1-gt_t.unsqueeze(1))@gt_R
-                visualize_points_3d(gt_pts.squeeze(0).cpu().numpy(), f"dense_pm_bg_L{idx}",c=bg_scores1.squeeze(0).cpu().detach().numpy(), s=1, cmap="rainbow")
-                visualize_points_3d(p2.squeeze(0).cpu().numpy(), f"dense_po_bg_L{idx}",c=bg_scores2.squeeze(0).cpu().detach().numpy(), s=1, cmap="rainbow")
+            # # visualize model bg scores
+            # for idx , atten in enumerate(atten_list):
+            #     atten = atten_list[-1]
+            #     scores = torch.softmax(atten, dim=2) * torch.softmax(atten, dim=1)
+            #     bg_scores1 = scores[:,1:,0]
+            #     bg_scores2 = scores[:,0,1:]
+            #     gt_pts = (p1-gt_t.unsqueeze(1))@gt_R
+            #     visualize_points_3d(gt_pts.squeeze(0).cpu().numpy(), f"dense_pm_bg_L{idx}",c=bg_scores1.squeeze(0).cpu().detach().numpy(), s=1, cmap="rainbow")
+            #     visualize_points_3d(p2.squeeze(0).cpu().numpy(), f"dense_po_bg_L{idx}",c=bg_scores2.squeeze(0).cpu().detach().numpy(), s=1, cmap="rainbow")
 
         else:
             pred_R, pred_t, pred_pose_score = compute_fine_Rt(

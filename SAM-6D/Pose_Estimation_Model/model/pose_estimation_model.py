@@ -7,7 +7,7 @@ from fine_point_matching import FinePointMatching
 from transformer import GeometricStructureEmbedding
 from model_utils import sample_pts_feats
 
-from vis_utils import visualize_points_3d, features_to_colors
+from vis_utils import visualize_points_3d, features_to_colors, visualize_two_sets_3d
 
 class Net(nn.Module):
     def __init__(self, cfg):
@@ -53,6 +53,11 @@ class Net(nn.Module):
         visualize_points_3d(gt_pts.squeeze(0).cpu().numpy(), "sparse_pm",c=color_m, s=5)
         visualize_points_3d(sparse_po.squeeze(0).cpu().numpy(), "sparse_po",c=color_o,s=5)
 
+        visualize_two_sets_3d(
+            gt_pts.squeeze(0).cpu().numpy(), 
+            sparse_po.squeeze(0).cpu().numpy(), 
+            "sparse", s=5)
+
         # fine_point_matching
         end_points, of1, of2 = self.fine_point_matching(
             dense_pm, dense_fm, geo_embedding_m, fps_idx_m,
@@ -66,6 +71,12 @@ class Net(nn.Module):
         print(len(gt_pts.squeeze(0)), len(dense_po.squeeze(0)))
         visualize_points_3d(gt_pts.squeeze(0).cpu().numpy(), "dense_pm",c=color_m)
         visualize_points_3d(dense_po.squeeze(0).cpu().numpy(), "dense_po",c=color_o)
+
+
+        visualize_two_sets_3d(
+            gt_pts.squeeze(0).cpu().numpy(), 
+            dense_po.squeeze(0).cpu().numpy(), 
+            "dense", s=1)
 
         breakpoint()
         return end_points

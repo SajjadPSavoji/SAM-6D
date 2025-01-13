@@ -466,7 +466,8 @@ def sample_pts_and_feats_nonuniform(
     all_fo: torch.Tensor,       # (B, N, F)
     all_scores2: torch.Tensor,  # (B, N) per-point scores (arbitrary range)
     fps_idx_o: torch.Tensor,    # (B, M) indices to concat at the end
-    fine_npoint: int
+    fine_npoint: int,
+    coarse_npoint: int,
 ):
     """
     1) Normalize all_scores2 per batch into [0,1].
@@ -483,7 +484,7 @@ def sample_pts_and_feats_nonuniform(
     """
     B, N, _ = all_po.shape
     D = all_fo.shape[-1]
-    M = fps_idx_o.shape[-1]
+    M = coarse_npoint
     device = all_po.device
     
     # We plan to sample 'fine_npoint - M' points, then append M points => total 'fine_npoint'
@@ -508,7 +509,7 @@ def sample_pts_and_feats_nonuniform(
     #    setting their normalized score = 1.0 => 1 - 1.0 = 0.
     # --------------------------------------------------------
     scores_clone = scores_norm.clone()
-    scores_clone.scatter_(1, fps_idx_o.long(), 1.0)  # set excluded indices to 1
+    # scores_clone.scatter_(1, fps_idx_o.long(), 1.0)  # set excluded indices to 1
     
     
     # --------------------------------------------------------
@@ -536,13 +537,19 @@ def sample_pts_and_feats_nonuniform(
     chosen_fo = torch.gather(all_fo, dim=1, index=idx_expanded_fo)  # [B, sample_n, F]
     
     # --------------------------------------------------------
-    # 4) Concatenate the 'fps_idx_o' points/features at the end
+    # 4) draw M points for geometrical transformer
     # --------------------------------------------------------
-    # gather fps points, shape => (B, M, 3), (B, M, F)
-    fps_idx_expanded_po = fps_idx_o.unsqueeze(-1).expand(-1, -1, 3)  # [B, M, 3]
-    fps_idx_expanded_fo = fps_idx_o.unsqueeze(-1).expand(-1, -1, D)  # [B, M, F]
-    fps_po = torch.gather(all_po, dim=1, index=fps_idx_expanded_po.long())  # [B, M, 3]
-    fps_fo = torch.gather(all_fo, dim=1, index=fps_idx_expanded_fo.long())  # [B, M, F]
+    # random values ~ U[0,1], shape (B, M)
+    rand_vals = torch.rand(B, M, device=device)
+    
+    # indices from [0..N-1], shape (B, M)
+    idx = torch.searchsorted(cumsum_prob, rand_vals)
+
+    # Gather chosen points/features
+    idx_expanded_po = idx.unsqueeze(-1).expand(-1, -1, 3)  # [B, M, 3]
+    idx_expanded_fo = idx.unsqueeze(-1).expand(-1, -1, D)  # [B, M, F]
+    fps_po = torch.gather(all_po, dim=1, index=idx_expanded_po)  # [B, M, 3]
+    fps_fo = torch.gather(all_fo, dim=1, index=idx_expanded_fo)  # [B, M, F]
     
     # final shapes => (B, sample_n + M, 3/ F) = (B, fine_npoint, 3/ F)
     final_po = torch.cat([chosen_po, fps_po], dim=1)

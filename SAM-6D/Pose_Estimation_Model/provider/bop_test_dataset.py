@@ -73,6 +73,7 @@ class BOPTestset():
         return len(self.det_keys)
 
     def __getitem__(self, index):
+        # index = 50
         dets = self.dets[self.det_keys[index]]
 
         instances = []

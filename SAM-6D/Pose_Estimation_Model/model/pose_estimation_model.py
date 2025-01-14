@@ -6,6 +6,7 @@ from coarse_point_matching import CoarsePointMatching
 from fine_point_matching import FinePointMatching
 from transformer import GeometricStructureEmbedding
 from model_utils import sample_pts_feats
+from vis_utils import features_to_colors, visualize_points_3d, visualize_two_sets_3d
 
 
 class Net(nn.Module):
@@ -51,4 +52,3 @@ class Net(nn.Module):
         )
 
         return end_points
-

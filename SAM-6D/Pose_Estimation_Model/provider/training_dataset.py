@@ -384,12 +384,22 @@ class Dataset():
 
         # mask
         mask = load_im(mask_path).astype(np.uint8) == 255
+
+        # augment mask
+        if self.augment_mask:
+            mask = mask.astype(np.float32)
+            mask = self.mask_augmentor(mask)
+            if np.sum(mask>0) == 0:
+                return None, None, None
+
         bbox = get_bbox(mask)
         y1,y2,x1,x2 = bbox
         mask = mask[y1:y2, x1:x2]
 
         # rgb
         rgb = load_im(rgb_path).astype(np.uint8)[..., ::-1][y1:y2, x1:x2, :]
+
+        # augment image
         if np.random.rand() < 0.8:
             rgb = self.color_augmentor.augment_image(rgb)
         if self.rgb_mask_flag:
@@ -397,7 +407,6 @@ class Dataset():
         rgb = cv2.resize(rgb, (self.img_size, self.img_size), interpolation=cv2.INTER_LINEAR)
         rgb = self.transform(np.array(rgb))
 
-        # xyz
         choose = mask.astype(np.float32).flatten().nonzero()[0]
         if len(choose) <= self.n_sample_template_point:
             choose_idx = np.random.choice(np.arange(len(choose)), self.n_sample_template_point)
@@ -405,8 +414,17 @@ class Dataset():
             choose_idx = np.random.choice(np.arange(len(choose)), self.n_sample_template_point, replace=False)
         choose = choose[choose_idx]
 
+        # xyz
         xyz = np.load(xyz_path).astype(np.float32)[y1:y2, x1:x2, :]
         xyz = xyz.reshape((-1, 3))[choose, :] * 0.1
+
+        # augment point cloud
+        if self.augment_depth and np.random.rand() < 0.8:
+            mean_norm = np.mean(np.linalg.norm(xyz, axis=1))
+            noise_scale = 0.01 * mean_norm  # 1% of the mean norm
+            noise = np.random.normal(scale=noise_scale, size=xyz.shape)
+            xyz += noise
+
         choose = get_resize_rgb_choose(choose, [y1, y2, x1, x2], self.img_size)
 
         return rgb, choose, xyz

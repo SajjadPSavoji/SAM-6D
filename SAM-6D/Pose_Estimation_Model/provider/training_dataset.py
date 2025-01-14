@@ -207,6 +207,14 @@ class Dataset():
                 MaskAugmentation(p=0.3, transform=MaskMissingTransform()),
             ]
         )
+
+        self.template_mask_augmentor = MaskAugmentation(p=0.8,
+            transform=[
+                MaskAugmentation(p=0.3, transform=MaskLineSplit()),
+                MaskAugmentation(p=0.3, transform=MaskEllipseDropoutTransform()),
+                MaskAugmentation(p=0.3, transform=MaskMissingTransform()),
+            ]
+        )
         self.transform = transforms.Compose([transforms.ToTensor(),
                                             transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                                                 std=[0.229, 0.224, 0.225])])
@@ -238,6 +246,7 @@ class Dataset():
         return np.random.choice(pool)
 
     def read_data(self, index):
+        # index = 100
         path_head = self.dataset_paths[index]
         dataset_type = path_head.split('/')[0][9:]
         if not self._check_path(os.path.join(self.data_dir, path_head)):
@@ -388,9 +397,7 @@ class Dataset():
         # augment mask
         if self.augment_mask:
             mask = mask.astype(np.float32)
-            mask = self.mask_augmentor(mask)
-            if np.sum(mask>0) == 0:
-                return None, None, None
+            mask = self.template_mask_augmentor(mask)
 
         bbox = get_bbox(mask)
         y1,y2,x1,x2 = bbox
@@ -418,10 +425,10 @@ class Dataset():
         xyz = np.load(xyz_path).astype(np.float32)[y1:y2, x1:x2, :]
         xyz = xyz.reshape((-1, 3))[choose, :] * 0.1
 
-        # augment point cloud
+        # augment xyz
         if self.augment_depth and np.random.rand() < 0.8:
             mean_norm = np.mean(np.linalg.norm(xyz, axis=1))
-            noise_scale = 0.01 * mean_norm  # 1% of the mean norm
+            noise_scale = 0.01 * mean_norm
             noise = np.random.normal(scale=noise_scale, size=xyz.shape)
             xyz += noise
 

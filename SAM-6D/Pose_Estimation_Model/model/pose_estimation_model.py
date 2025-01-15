@@ -68,19 +68,17 @@ class Net(nn.Module):
         all_scores1 = knn_linear_falloff_interpolate_3d(bg_scores1, sparse_pm, all_pm, k)
         all_scores2 = knn_linear_falloff_interpolate_3d(bg_scores2, sparse_po, all_po, k)
         # sample n_fine poits from all points using inverse of scores so the lower the score, the higher the probability
-        dense_po, dense_fo, fps_idx_o = sample_pts_and_feats_nonuniform(all_po, all_fo, all_scores2, self.fine_npoint, self.coarse_npoint)
-        dense_pm, dense_fm, fps_idx_m = sample_pts_and_feats_nonuniform(all_pm, all_fm, all_scores1, self.fine_npoint, self.coarse_npoint)
-        # dense_pm, dense_fm, fps_idx_m = all_pm, all_fm, fps_idx_m
+        dense_po, dense_fo, fps_idx_o = sample_pts_and_feats_nonuniform(all_po, all_fo, all_scores2, fps_idx_o, self.fine_npoint, self.coarse_npoint)
+        # dense_pm, dense_fm, fps_idx_m = sample_pts_and_feats_nonuniform(all_pm, all_fm, all_scores1, fps_idx_m, self.fine_npoint, self.coarse_npoint)
+        dense_pm, dense_fm, fps_idx_m = all_pm, all_fm, fps_idx_m
 
-        # gather fps points, shape => (B, M, 3), (B, M, F)
-        fps_idx_expanded_po = fps_idx_o.unsqueeze(-1).expand(-1, -1, 3)  # [B, M, 3]
-        fps_po = torch.gather(all_po, dim=1, index=fps_idx_expanded_po.long())  # [B, M, 3]
-
-        fps_idx_expanded_pm = fps_idx_m.unsqueeze(-1).expand(-1, -1, 3)  # [B, M, 3]
-        fps_pm = torch.gather(all_pm, dim=1, index=fps_idx_expanded_pm.long())  # [B, M, 3]
-
-        geo_embedding_m = self.geo_embedding(torch.cat([bg_point, fps_pm], dim=1))
-        geo_embedding_o = self.geo_embedding(torch.cat([bg_point, fps_po], dim=1))
+        # # gather fps points, shape => (B, M, 3), (B, M, F)
+        # fps_idx_expanded_po = fps_idx_o.unsqueeze(-1).expand(-1, -1, 3)  # [B, M, 3]
+        # fps_po = torch.gather(all_po, dim=1, index=fps_idx_expanded_po.long())  # [B, M, 3]
+        # fps_idx_expanded_pm = fps_idx_m.unsqueeze(-1).expand(-1, -1, 3)  # [B, M, 3]
+        # fps_pm = torch.gather(all_pm, dim=1, index=fps_idx_expanded_pm.long())  # [B, M, 3]
+        # geo_embedding_m = self.geo_embedding(torch.cat([bg_point, fps_pm], dim=1))
+        # geo_embedding_o = self.geo_embedding(torch.cat([bg_point, fps_po], dim=1))
 
         # # # visualize bg_scores all po
         # visualize_points_3d(all_po.squeeze(0).cpu().numpy(), f"all_po_bg_int_k{k}",c=all_scores2.squeeze(0).cpu().detach().numpy(), s=1, cmap="rainbow")
@@ -92,8 +90,6 @@ class Net(nn.Module):
         # visualize_points_3d(all_gt_pts.squeeze(0).cpu().numpy(), f"all_pm_bg_int_k{k}",c=all_scores1.squeeze(0).cpu().detach().numpy(), s=1, cmap="rainbow")
         # visualize_points_3d(all_gt_pts.squeeze(0).cpu().numpy(), f"all_pm_uniform", s=1)
         # visualize_points_3d(dense_gt_pts.squeeze(0).cpu().numpy(), "dense_pm_non_uniform", s=1)
-
-        # breakpoint()
         
         # # # also sample uniform
         # dense_uni_po, dense_uni_fo, fps_idx_o_uni = sample_pts_feats(

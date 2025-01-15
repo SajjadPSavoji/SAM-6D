@@ -71,8 +71,8 @@ train_dataset:
   augment_mask  : True
 
 train_dataloader:
-  bs            : 1
-  num_workers   : 1
+  bs            : 80
+  num_workers   : 80
   shuffle       : True
   drop_last     : True
   pin_memory    : False

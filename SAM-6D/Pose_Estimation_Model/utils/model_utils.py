@@ -465,6 +465,7 @@ def sample_pts_and_feats_nonuniform(
     all_po: torch.Tensor,       # (B, N, 3)
     all_fo: torch.Tensor,       # (B, N, F)
     all_scores2: torch.Tensor,  # (B, N) per-point scores (arbitrary range)
+    fps_idx_o: torch.Tensor,    # (B, M) indices to concat at the end
     fine_npoint: int,
     coarse_npoint: int,
 ):
@@ -503,6 +504,13 @@ def sample_pts_and_feats_nonuniform(
     # shape: (B, N)
     scores_norm = (all_scores2 - scores_min) / scores_range
     
+    # --------------------------------------------------------
+    # 2) Force excluded points to have zero probability by
+    #    setting their normalized score = 1.0 => 1 - 1.0 = 0.
+    # --------------------------------------------------------
+    scores_clone = scores_norm.clone()
+    scores_clone.scatter_(1, fps_idx_o.long(), 1.0)  # set excluded indices to 1
+    
     
     # --------------------------------------------------------
     # 3) Build probability distribution via p = (1 - score)
@@ -511,7 +519,7 @@ def sample_pts_and_feats_nonuniform(
     # --------------------------------------------------------
     eps = 1e-10
     alpha = 2
-    prob = (1.0 - scores_norm).clamp_min(eps)  # shape (B, N)
+    prob = (1.0 - scores_clone).clamp_min(eps)  # shape (B, N)
     prob = prob**alpha 
     cumsum_prob = torch.cumsum(prob, dim=1)    # shape (B, N)
     cumsum_prob /= (cumsum_prob[:, -1].unsqueeze(1).contiguous()+eps)
@@ -529,19 +537,13 @@ def sample_pts_and_feats_nonuniform(
     chosen_fo = torch.gather(all_fo, dim=1, index=idx_expanded_fo)  # [B, sample_n, F]
     
     # --------------------------------------------------------
-    # 4) draw M points for geometrical transformer
+    # 4) Concatenate the 'fps_idx_o' points/features at the end
     # --------------------------------------------------------
-    # random values ~ U[0,1], shape (B, M)
-    rand_vals = torch.rand(B, M, device=device)
-    
-    # indices from [0..N-1], shape (B, M)
-    idx = torch.searchsorted(cumsum_prob, rand_vals)
-
-    # Gather chosen points/features
-    idx_expanded_po = idx.unsqueeze(-1).expand(-1, -1, 3)  # [B, M, 3]
-    idx_expanded_fo = idx.unsqueeze(-1).expand(-1, -1, D)  # [B, M, F]
-    fps_po = torch.gather(all_po, dim=1, index=idx_expanded_po)  # [B, M, 3]
-    fps_fo = torch.gather(all_fo, dim=1, index=idx_expanded_fo)  # [B, M, F]
+    # gather fps points, shape => (B, M, 3), (B, M, F)
+    fps_idx_expanded_po = fps_idx_o.unsqueeze(-1).expand(-1, -1, 3)  # [B, M, 3]
+    fps_idx_expanded_fo = fps_idx_o.unsqueeze(-1).expand(-1, -1, D)  # [B, M, F]
+    fps_po = torch.gather(all_po, dim=1, index=fps_idx_expanded_po.long())  # [B, M, 3]
+    fps_fo = torch.gather(all_fo, dim=1, index=fps_idx_expanded_fo.long())  # [B, M, F]
     
     # final shapes => (B, sample_n + M, 3/ F) = (B, fine_npoint, 3/ F)
     final_po = torch.cat([chosen_po, fps_po], dim=1)

@@ -44,7 +44,7 @@ class Net(nn.Module):
             radius, end_points,
         )
 
-        # # # visualization
+        # # # # visualization
         # color_m = features_to_colors(of1.squeeze(0).cpu().detach().numpy()[1:, :])
         # color_o = features_to_colors(of2.squeeze(0).cpu().detach().numpy()[1:, :])
         # if self.training:
@@ -64,25 +64,25 @@ class Net(nn.Module):
 
    
         # interpolate course bg_scores to all points
-        k = 196
-        # all_scores1 = knn_linear_falloff_interpolate_3d(bg_scores1, sparse_pm, all_pm, k)
+        k = self.coarse_npoint
+        all_scores1 = knn_linear_falloff_interpolate_3d(bg_scores1, sparse_pm, all_pm, k)
         all_scores2 = knn_linear_falloff_interpolate_3d(bg_scores2, sparse_po, all_po, k)
         # sample n_fine poits from all points using inverse of scores so the lower the score, the higher the probability
-        dense_po, dense_fo, fps_idx_o = sample_pts_and_feats_nonuniform(all_po, all_fo, all_scores2, fps_idx_o, self.fine_npoint, self.coarse_npoint)
-        # dense_pm, dense_fm, fps_idx_m = sample_pts_and_feats_nonuniform(all_pm, all_fm, all_scores1, fps_idx_m, self.fine_npoint, self.coarse_npoint)
-        dense_pm, dense_fm, fps_idx_m = all_pm, all_fm, fps_idx_m
+        dense_po, dense_fo, fps_idx_o = sample_pts_and_feats_nonuniform(all_po, all_fo, all_scores2, self.fine_npoint, self.coarse_npoint)
+        dense_pm, dense_fm, fps_idx_m = sample_pts_and_feats_nonuniform(all_pm, all_fm, all_scores1, self.fine_npoint, self.coarse_npoint)
+        # dense_pm, dense_fm, fps_idx_m = all_pm, all_fm, fps_idx_m
 
         # gather fps points, shape => (B, M, 3), (B, M, F)
         fps_idx_expanded_po = fps_idx_o.unsqueeze(-1).expand(-1, -1, 3)  # [B, M, 3]
         fps_po = torch.gather(all_po, dim=1, index=fps_idx_expanded_po.long())  # [B, M, 3]
 
-        # fps_idx_expanded_pm = fps_idx_m.unsqueeze(-1).expand(-1, -1, 3)  # [B, M, 3]
-        # fps_pm = torch.gather(all_pm, dim=1, index=fps_idx_expanded_pm.long())  # [B, M, 3]
+        fps_idx_expanded_pm = fps_idx_m.unsqueeze(-1).expand(-1, -1, 3)  # [B, M, 3]
+        fps_pm = torch.gather(all_pm, dim=1, index=fps_idx_expanded_pm.long())  # [B, M, 3]
 
-        # geo_embedding_m = self.geo_embedding(torch.cat([bg_point, fps_pm], dim=1))
+        geo_embedding_m = self.geo_embedding(torch.cat([bg_point, fps_pm], dim=1))
         geo_embedding_o = self.geo_embedding(torch.cat([bg_point, fps_po], dim=1))
 
-        # # visualize bg_scores all po
+        # # # visualize bg_scores all po
         # visualize_points_3d(all_po.squeeze(0).cpu().numpy(), f"all_po_bg_int_k{k}",c=all_scores2.squeeze(0).cpu().detach().numpy(), s=1, cmap="rainbow")
         # visualize_points_3d(all_po.squeeze(0).cpu().numpy(), f"all_po_uniform", s=1)
         # visualize_points_3d(dense_po.squeeze(0).cpu().numpy(), "dense_po_non_uniform", s=1)
@@ -95,11 +95,16 @@ class Net(nn.Module):
 
         # breakpoint()
         
-        # # also sample uniform
+        # # # also sample uniform
         # dense_uni_po, dense_uni_fo, fps_idx_o_uni = sample_pts_feats(
         #     all_po, all_fo, self.fine_npoint, return_index=True
         # )
+        # dense_uni_pm, dense_uni_fm, fps_idx_m_uni = sample_pts_feats(
+        #     all_pm, all_fm, self.fine_npoint, return_index=True
+        # )
         # visualize_points_3d(dense_uni_po.squeeze(0).cpu().numpy(), "dense_po_uniform", s=1)
+        # dense_uni_pm = (dense_uni_pm-gt_t.unsqueeze(1))@gt_r
+        # visualize_points_3d(dense_uni_pm.squeeze(0).cpu().numpy(), "dense_pm_uniform", s=1)
 
 
         # fine_point_matching
@@ -109,10 +114,10 @@ class Net(nn.Module):
             radius, end_points
         )
 
+        # # visualization
         # color_m = features_to_colors(of1.squeeze(0).cpu().detach().numpy()[1:, :])
         # color_o = features_to_colors(of2.squeeze(0).cpu().detach().numpy()[1:, :])
         # gt_pts = (dense_pm-gt_t.unsqueeze(1))@gt_r
-        # print(len(gt_pts.squeeze(0)), len(dense_po.squeeze(0)))
         # visualize_points_3d(gt_pts.squeeze(0).cpu().numpy(), "dense_pm",c=color_m, s=1)
         # visualize_points_3d(dense_po.squeeze(0).cpu().numpy(), "dense_po",c=color_o, s=1)
         # visualize_points_3d(gt_pts.squeeze(0).cpu().numpy(), f"dense_pm_bg_L_Last",c=bg_scores1.squeeze(0).cpu().detach().numpy(), s=1, cmap="rainbow")
@@ -120,4 +125,3 @@ class Net(nn.Module):
         # breakpoint()
 
         return end_points
-

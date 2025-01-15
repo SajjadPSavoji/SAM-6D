@@ -465,7 +465,6 @@ def sample_pts_and_feats_nonuniform(
     all_po: torch.Tensor,       # (B, N, 3)
     all_fo: torch.Tensor,       # (B, N, F)
     all_scores2: torch.Tensor,  # (B, N) per-point scores (arbitrary range)
-    fps_idx_o: torch.Tensor,    # (B, M) indices to concat at the end
     fine_npoint: int,
     coarse_npoint: int,
 ):
@@ -504,13 +503,6 @@ def sample_pts_and_feats_nonuniform(
     # shape: (B, N)
     scores_norm = (all_scores2 - scores_min) / scores_range
     
-    # --------------------------------------------------------
-    # 2) Force excluded points to have zero probability by
-    #    setting their normalized score = 1.0 => 1 - 1.0 = 0.
-    # --------------------------------------------------------
-    scores_clone = scores_norm.clone()
-    # scores_clone.scatter_(1, fps_idx_o.long(), 1.0)  # set excluded indices to 1
-    
     
     # --------------------------------------------------------
     # 3) Build probability distribution via p = (1 - score)
@@ -519,7 +511,7 @@ def sample_pts_and_feats_nonuniform(
     # --------------------------------------------------------
     eps = 1e-10
     alpha = 2
-    prob = (1.0 - scores_clone).clamp_min(eps)  # shape (B, N)
+    prob = (1.0 - scores_norm).clamp_min(eps)  # shape (B, N)
     prob = prob**alpha 
     cumsum_prob = torch.cumsum(prob, dim=1)    # shape (B, N)
     cumsum_prob /= (cumsum_prob[:, -1].unsqueeze(1).contiguous()+eps)

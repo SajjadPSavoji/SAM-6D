@@ -1,14 +1,41 @@
-import blenderproc as bproc
+#!/usr/bin/env python3
 
+import blenderproc as bproc
 import os
+import sys
 import cv2
 import numpy as np
 import trimesh
 import time
-import sys
 
-# set relative path of Data folder
+# -------------------------------------------------------------------------
+# 1) Parse --chunk_file argument and read (synset_id, source_id) pairs
+# -------------------------------------------------------------------------
+chunk_file = None
+argv = sys.argv
+for i, arg in enumerate(argv):
+    if arg == "--chunk_file":
+        chunk_file = argv[i + 1]
+        break
+
+if chunk_file is None:
+    print("ERROR: No --chunk_file argument provided! Use: --chunk_file chunk_0.txt")
+    sys.exit(1)
+
+pairs_to_render = []
+with open(chunk_file, 'r') as f:
+    for line in f:
+        line = line.strip()
+        if line:
+            synset_id, source_id = line.split(',')
+            pairs_to_render.append((synset_id, source_id))
+
+# -------------------------------------------------------------------------
+# 2) Setup all other paths and helper functions
+# -------------------------------------------------------------------------
 render_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Adjust these paths to match your project’s structure:
 shapenet_path = os.path.join(render_dir, '../Data/MegaPose-Training-Data/MegaPose-ShapeNetCore/shapenetcorev2')
 shapenet_orig_path = os.path.join(shapenet_path, 'models_orig')
 output_dir = os.path.join(render_dir, '../Data/MegaPose-Training-Data/MegaPose-ShapeNetCore/templates')
@@ -17,175 +44,170 @@ cnos_cam_fpath = os.path.join(render_dir, '../Instance_Segmentation_Model/utils/
 def custom_progress_bar(current, total, start_time):
     """
     Display a custom progress bar with ETA using `print`.
-    
-    Args:
-        current (int): Current progress (e.g., 5 out of 100).
-        total (int): Total iterations (e.g., 100).
-        start_time (float): The start time of the process.
     """
-    # Calculate progress percentage
     progress = current / total
-    bar_length = 40  # Length of the progress bar
+    bar_length = 40
     filled_length = int(bar_length * progress)
     bar = '█' * filled_length + '-' * (bar_length - filled_length)
 
-    # Calculate elapsed and ETA times
     elapsed_time = time.time() - start_time
     eta = (elapsed_time / (current + 1)) * (total - current - 1) if current > 0 else 0
 
-    # Format elapsed and ETA times
     elapsed_formatted = time.strftime('%H:%M:%S', time.gmtime(elapsed_time))
     eta_formatted = time.strftime('%H:%M:%S', time.gmtime(eta))
 
-    # Print progress bar
-    print(f'\r[{bar}] {current}/{total} - Elapsed: {elapsed_formatted} - ETA: {eta_formatted}')
-
-    # Print a new line at the end
+    print(f'\r[{bar}] {current}/{total} - Elapsed: {elapsed_formatted} - ETA: {eta_formatted}', end='')
     if current == total - 1:
         print()
 
 def get_norm_info(mesh_path):
+    """
+    Loads the mesh with trimesh, samples points, finds bounding extremes,
+    and returns the appropriate scale factor (1 / (2*radius)).
+    """
     mesh = trimesh.load(mesh_path, force='mesh')
-
-    model_points = trimesh.sample.sample_surface(mesh, 1024)[0]
-    model_points = model_points.astype(np.float32)
-
+    # Sample ~1024 points on the surface
+    model_points = trimesh.sample.sample_surface(mesh, 1024)[0].astype(np.float32)
     min_value = np.min(model_points, axis=0)
     max_value = np.max(model_points, axis=0)
-
     radius = max(np.linalg.norm(max_value), np.linalg.norm(min_value))
-
     return 1/(2*radius)
 
 def get_cam_locs(cnos_cam_fpath):
     """
     Loads camera poses, adjusts their alignment, and scales them to a target format.
-
-    Args:
-        cnos_cam_fpath (str): Path to the file with camera poses.
-
-    Returns:
-        np.ndarray: Transformed and aligned camera positions.
+    Returns an (N,3) array of camera location vectors.
     """
-    # Load camera poses
     cams = np.load(cnos_cam_fpath)
-    
     # Adjust rotation and scale translation
     cams[:, :3, 1:3] = -cams[:, :3, 1:3]
-    cams[:, :3, -1] *= 0.002  # Scale translation
-    
+    cams[:, :3, -1] *= 0.002
+
     # Extract camera positions
     pos = cams[:, :3, -1]
-    
+
     # Align directions
     dir_orig = np.array([0, 0, -1]) / np.linalg.norm([0, 0, -1])
     dir_tgt = np.array([-1, -1, -1]) / np.linalg.norm([-1, -1, -1])
     axis = np.cross(dir_orig, dir_tgt)
     axis_mag = np.linalg.norm(axis)
     dot = np.dot(dir_orig, dir_tgt)
-    skew = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
+    skew = np.array([
+        [0, -axis[2], axis[1]],
+        [axis[2], 0, -axis[0]],
+        [-axis[1], axis[0], 0]
+    ])
     rot = np.eye(3) + skew + skew @ skew * ((1 - dot) / (axis_mag ** 2))
-    
-    # Apply rotation and normalize
+
     aligned_pos = pos @ rot.T
     aligned_pos /= aligned_pos[0, 0]  # Scale by first position
-    aligned_pos = np.vstack([aligned_pos[-1:], aligned_pos[:-1]])  # Move last to top
-    
+    # Move last to top
+    aligned_pos = np.vstack([aligned_pos[-1:], aligned_pos[:-1]])
     return aligned_pos
 
+# -------------------------------------------------------------------------
+# 3) Initialize BlenderProc & precompute camera positions
+# -------------------------------------------------------------------------
 bproc.init()
 location = get_cam_locs(cnos_cam_fpath)
 
-total_objects = 0
-for synset_id in os.listdir(shapenet_orig_path):
-    synset_fpath = os.path.join(shapenet_orig_path, synset_id)
-    if not os.path.isdir(synset_fpath) or '.' in synset_id:
-        continue
-    total_objects += len(os.listdir(synset_fpath))
+# For progress bar
 start_time = time.time()
-cur_iter = -1
+total_objects = len(pairs_to_render)
 
-for synset_id in os.listdir(shapenet_orig_path):
-    synset_fpath = os.path.join(shapenet_orig_path, synset_id)
-    if not os.path.isdir(synset_fpath) or '.' in synset_id:
+# -------------------------------------------------------------------------
+# 4) Loop over all pairs in this chunk & render
+# -------------------------------------------------------------------------
+for idx, (synset_id, source_id) in enumerate(pairs_to_render):
+    custom_progress_bar(idx, total_objects, start_time)
+
+    # Paths
+    save_synset_folder = os.path.join(output_dir, synset_id)
+    os.makedirs(save_synset_folder, exist_ok=True)
+
+    save_fpath = os.path.join(save_synset_folder, source_id)
+    os.makedirs(save_fpath, exist_ok=True)
+
+    cad_path = os.path.join(shapenet_orig_path, synset_id, source_id)
+    obj_fpath = os.path.join(cad_path, 'models', 'model_normalized.obj')
+    if not os.path.exists(obj_fpath):
         continue
-    # print('---------------------------'+str(synset_id)+'-------------------------------------')
-    for model_idx, source_id in enumerate(os.listdir(synset_fpath)):
-        # print('---------------------------'+str(source_id)+'-------------------------------------')
-        cur_iter += 1
-        custom_progress_bar(cur_iter, total_objects, start_time)
-        save_synset_folder = os.path.join(output_dir, synset_id)
-        if not os.path.exists(save_synset_folder):
-            os.makedirs(save_synset_folder)
 
-        save_fpath = os.path.join(save_synset_folder, source_id)
-        if not os.path.exists(save_fpath):
-            os.mkdir(save_fpath)
+    # Check if already rendered
+    rgb42path = os.path.join(save_fpath, 'rgb_41.png')
+    if os.path.exists(rgb42path):
+        print(f"--already rendered-- {synset_id}/{source_id}")
+        continue
 
-        cad_path = os.path.join(shapenet_orig_path, synset_id, source_id)
-        obj_fpath = os.path.join(cad_path, 'models', 'model_normalized.obj')
+    # Compute the scale factor for this object
+    scale = get_norm_info(obj_fpath)
 
-        if not os.path.exists(obj_fpath):
-            continue
+    # Clean up the scene from any prior iteration
+    bproc.clean_up()
 
-        # don't render again
-        rgb42path = os.path.join(save_fpath,'rgb_'+str(41)+'.png')
-        if os.path.exists(rgb42path):
-            print('--already rendered-'+str(source_id)+'-------------------------------------')
-            continue
+    # Load the object from ShapeNet
+    obj = bproc.loader.load_shapenet(
+        shapenet_orig_path, 
+        synset_id, 
+        source_id, 
+        move_object_origin=False
+    )
+    obj.set_scale([scale, scale, scale])
+    # Optional: set a category ID
+    obj.set_cp("category_id", idx)
 
-        scale = get_norm_info(obj_fpath)
+    # Create lights, one for each camera location (if desired)
+    light_energy = 60
+    light_scale = 3
+    lights = []
+    for loc_i, loc in enumerate(location):
+        l = bproc.types.Light()
+        l.set_type("POINT")
+        l.set_location([light_scale * v for v in loc])
+        l.set_energy(light_energy)
+        lights.append(l)
 
-        # reset blender
-        bproc.clean_up()
+    # Add one camera pose for each location
+    for loc in location:
+        rotation_matrix = bproc.camera.rotation_from_forward_vec(
+            obj.get_location() - loc
+        )
+        cam2world_matrix = bproc.math.build_transformation_mat(loc, rotation_matrix)
+        bproc.camera.add_camera_pose(cam2world_matrix)
 
-        # load object
-        obj = bproc.loader.load_shapenet(shapenet_orig_path, synset_id, source_id, move_object_origin=False)
-        obj.set_scale([scale, scale, scale])
-        obj.set_cp("category_id", model_idx)
+    # Minimal sample count to speed up rendering
+    bproc.renderer.set_max_amount_of_samples(1)
 
-        # set up lights around the object
-        light_energy = 60
-        light_scale = 3
-        lights = [bproc.types.Light() for _ in location]
+    # Render the pipeline (standard)
+    data = bproc.renderer.render()
+    # Render NOCS
+    data.update(bproc.renderer.render_nocs())
 
-        for idx, loc in enumerate(location):
-            # set light
-            lights[idx].set_type("POINT")
-            lights[idx].set_location([light_scale*v for v in loc])
-            lights[idx].set_energy(light_energy)
+    # Save outputs for each camera
+    for view_idx, loc in enumerate(location):
+        # Save RGB (flip from BGR -> RGB if needed)
+        color_bgr = data["colors"][view_idx]
+        color_bgr[..., :3] = color_bgr[..., :3][..., ::-1]
+        cv2.imwrite(os.path.join(save_fpath, f'rgb_{view_idx}.png'), color_bgr)
 
-            # compute rotation based on vector going from location towards the location of object
-            rotation_matrix = bproc.camera.rotation_from_forward_vec(obj.get_location() - loc)
-            # add homog cam pose based on location and rotation
-            cam2world_matrix = bproc.math.build_transformation_mat(loc, rotation_matrix)
-            bproc.camera.add_camera_pose(cam2world_matrix)
+        # Save mask (last channel of NOCS)
+        mask_img = data["nocs"][view_idx][..., -1]
+        cv2.imwrite(os.path.join(save_fpath, f'mask_{view_idx}.png'), mask_img * 255)
 
-        bproc.renderer.set_max_amount_of_samples(1)
-        # render the whole pipeline
-        data = bproc.renderer.render()
-        # render nocs
-        data.update(bproc.renderer.render_nocs())
+        # Save NOCS as .npy
+        xyz_nocs = 2 * (data["nocs"][view_idx][..., :3] - 0.5)
+        # Rotate 90 degrees to match your specific CAD orientation
+        rot90 = np.array([
+            [1,  0, 0],
+            [0,  0, 1],
+            [0, -1, 0]
+        ])
+        h, w = xyz_nocs.shape[:2]
+        xyz_nocs_reshaped = xyz_nocs.reshape(-1, 3)
+        xyz_nocs_rotated = (rot90 @ xyz_nocs_reshaped.T).T.reshape(h, w, 3)
+        np.save(
+            os.path.join(save_fpath, f'xyz_{view_idx}.npy'),
+            xyz_nocs_rotated.astype(np.float16)
+        )
 
-        for idx, loc in enumerate(location):
-            # save rgb images
-            color_bgr_0 = data["colors"][idx]
-            color_bgr_0[..., :3] = color_bgr_0[..., :3][..., ::-1]
-            cv2.imwrite(os.path.join(save_fpath,'rgb_'+str(idx)+'.png'), color_bgr_0)
-
-            # save masks
-            mask_0 = data["nocs"][idx][..., -1]
-            cv2.imwrite(os.path.join(save_fpath,'mask_'+str(idx)+'.png'), mask_0*255)
-
-            # save nocs
-            xyz_0 = 2*(data["nocs"][idx][..., :3] - 0.5)
-            # xyz need to rotate 90 degree to match CAD
-            rot90 = np.array([[1, 0, 0],
-                            [0, 0, 1],
-                            [0, -1, 0]])
-            h, w = xyz_0.shape[0], xyz_0.shape[1]
-
-            xyz_0 = ((rot90 @ xyz_0.reshape(-1, 3).T).T).reshape(h, w, 3)
-            np.save(os.path.join(save_fpath,'xyz_'+str(idx)+'.npy'), xyz_0.astype(np.float16))
-
-        breakpoint()
+print("\nDone rendering all pairs in this chunk.")

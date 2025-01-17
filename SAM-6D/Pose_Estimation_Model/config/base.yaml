@@ -9,7 +9,7 @@ optimizer:
 
 lr_scheduler:
   type: WarmupCosineLR
-  max_iters: 120000
+  max_iters: 600000
   warmup_factor: 0.001
   warmup_iters: 1000
 
@@ -102,6 +102,6 @@ test_dataloader:
 
 
 rd_seed: 1
-training_epoch: 3
+training_epoch: 15
 iters_to_print: 50
-pretrain_dir: checkpoints/sam-6d-pem-base.pth
+# pretrain_dir: checkpoints/sam-6d-pem-base.pth

@@ -3,6 +3,7 @@ import sys
 import math
 import time
 import subprocess
+import threading
 
 #############################
 # 1) Configuration
@@ -25,7 +26,7 @@ OUTPUT_DIR = os.path.join(
 RENDER_SCRIPT = "render_shapenet_templates.py"
 
 # Number of parallel processes to launch (can be > number of GPUs)
-NUM_PROCESSES = 80
+NUM_PROCESSES = 1
 
 # GPU IDs you have available (e.g., 8 GPUs).
 # We'll assign processes in a round-robin manner across these GPUs.
@@ -45,7 +46,7 @@ def chunkify(lst, num_chunks):
 
 def custom_progress_bar(current, total, start_time):
     """
-    Display a custom progress bar with ETA using `print`.
+    Display a custom progress bar with ETA using `print`, including days.
     """
     progress = current / total
     bar_length = 40
@@ -55,16 +56,40 @@ def custom_progress_bar(current, total, start_time):
     elapsed_time = time.time() - start_time
     eta = (elapsed_time / (current + 1)) * (total - current - 1) if current > 0 else 0
 
-    elapsed_formatted = time.strftime('%H:%M:%S', time.gmtime(elapsed_time))
-    eta_formatted = time.strftime('%H:%M:%S', time.gmtime(eta))
+    # Format elapsed time and ETA with days, hours, minutes, and seconds
+    elapsed_days, elapsed_seconds = divmod(elapsed_time, 86400)
+    elapsed_hours, elapsed_seconds = divmod(elapsed_seconds, 3600)
+    elapsed_minutes, elapsed_seconds = divmod(elapsed_seconds, 60)
+
+    eta_days, eta_seconds = divmod(eta, 86400)
+    eta_hours, eta_seconds = divmod(eta_seconds, 3600)
+    eta_minutes, eta_seconds = divmod(eta_seconds, 60)
+
+    elapsed_formatted = f"{int(elapsed_days)}d {int(elapsed_hours):02}:{int(elapsed_minutes):02}:{int(elapsed_seconds):02}"
+    eta_formatted = f"{int(eta_days)}d {int(eta_hours):02}:{int(eta_minutes):02}:{int(eta_seconds):02}"
 
     print(f'\r[{bar}] {current}/{total} - Elapsed: {elapsed_formatted} - ETA: {eta_formatted}', end='')
     if current == total - 1:
         print()
 
+
 #############################
 # 3) Main driver code
 #############################
+
+def check_completed_files(all_items, completed_files, start_time):
+    """
+    This function checks which files have been rendered and updates the progress.
+    It runs in a separate thread to periodically check for rendered files.
+    """
+    while len(completed_files) < len(all_items):
+        for synset_id, source_id in all_items:
+            save_fpath = os.path.join(OUTPUT_DIR, synset_id, source_id)
+            rgb42path = os.path.join(save_fpath, 'rgb_41.png')
+            if os.path.exists(rgb42path) and (synset_id, source_id) not in completed_files:
+                completed_files.add((synset_id, source_id))
+        custom_progress_bar(len(completed_files), len(all_items), start_time)
+        time.sleep(1)  # Poll every 1 second
 
 if __name__ == "__main__":
 
@@ -81,6 +106,8 @@ if __name__ == "__main__":
             continue
         total_objects += len(os.listdir(synset_fpath))
 
+    print(f"\nAll object found: {total_objects}")
+
     start_time = time.time()
     cur_iter = 0
 
@@ -91,7 +118,6 @@ if __name__ == "__main__":
 
         for source_id in os.listdir(synset_fpath):
             cur_iter += 1
-            custom_progress_bar(cur_iter, total_objects, start_time)
 
             save_synset_folder = os.path.join(OUTPUT_DIR, synset_id)
             if not os.path.exists(save_synset_folder):
@@ -104,13 +130,11 @@ if __name__ == "__main__":
             cad_path = os.path.join(SHAPENET_ORIG_PATH, synset_id, source_id)
             obj_fpath = os.path.join(cad_path, 'models', 'model_normalized.obj')
             if not os.path.exists(obj_fpath):
-                # No valid model found
                 continue
 
             # Check if already rendered (rgb_41.png as your "completion marker")
             rgb42path = os.path.join(save_fpath, 'rgb_41.png')
             if os.path.exists(rgb42path):
-                # Already rendered
                 continue
 
             # If we get here, we want to render this item
@@ -131,6 +155,10 @@ if __name__ == "__main__":
     # C) Launch BlenderProc processes
     # -----------------------------------------------------
     processes = []
+    completed_files = set()  # Track completed files
+    progress_thread = threading.Thread(target=check_completed_files, args=(all_items, completed_files, start_time))
+    progress_thread.start()  # Start background thread for progress bar
+
     for rank, chunk in enumerate(items_chunks):
         # Create a file that contains this chunk's (synset_id, source_id) pairs
         chunk_file = f"chunk_{rank}.txt"
@@ -152,7 +180,7 @@ if __name__ == "__main__":
         ]
 
         print(f"\nLaunching process {rank} on GPU {gpu_index} with {len(chunk)} items...")
-        p = subprocess.Popen(cmd, env=env)
+        p = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL)
         processes.append(p)
 
     # -----------------------------------------------------
@@ -160,6 +188,9 @@ if __name__ == "__main__":
     # -----------------------------------------------------
     for p in processes:
         p.wait()
+
+    # Wait for progress checking thread to finish
+    progress_thread.join()
 
     print("\nAll rendering processes finished.")
 

@@ -185,6 +185,8 @@ for idx, (synset_id, source_id) in enumerate(pairs_to_render):
 
     # Save outputs for each camera
     for view_idx, loc in enumerate(location):
+        # do not change temp0 and temp1
+        if view_idx <= 1: continue
         # Save RGB (flip from BGR -> RGB if needed)
         color_bgr = data["colors"][view_idx]
         color_bgr[..., :3] = color_bgr[..., :3][..., ::-1]

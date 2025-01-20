@@ -27,7 +27,7 @@ def get_norm_info(mesh_path):
     return 1/(2*radius)
 
 
-for synset_id in os.listdir(shapenet_orig_path)[26:]:
+for synset_id in os.listdir(shapenet_orig_path)[35:]:
     synset_fpath = os.path.join(shapenet_orig_path, synset_id)
     if not os.path.isdir(synset_fpath) or '.' in synset_id:
         continue

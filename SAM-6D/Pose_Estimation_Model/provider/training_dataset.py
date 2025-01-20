@@ -110,6 +110,7 @@ class Dataset():
         self.n_sample_observed_point = cfg.n_sample_observed_point
         self.n_sample_model_point = cfg.n_sample_model_point
         self.n_sample_template_point = cfg.n_sample_template_point
+        self.single_view_pr = cfg.single_view_pr
 
 
         self.data_paths = [
@@ -281,8 +282,15 @@ class Dataset():
 
 
         # template
-        tem1_rgb, tem1_choose, tem1_pts = self._get_template(dataset_type, obj_id, 0)
-        tem2_rgb, tem2_choose, tem2_pts = self._get_template(dataset_type, obj_id, 1)
+        tem_idx0, tem_idx1 = 0,1 # change later if have more than two templates
+        r = np.random.rand()
+        if r < self.single_view_pr / 2:
+            tem_idx1 = tem_idx0
+        elif r < self.single_view_pr:
+            tem_idx0 = tem_idx1
+
+        tem1_rgb, tem1_choose, tem1_pts = self._get_template(dataset_type, obj_id, tem_idx0)
+        tem2_rgb, tem2_choose, tem2_pts = self._get_template(dataset_type, obj_id, tem_idx1)
         if tem1_rgb is None:
             return None
 

@@ -69,6 +69,7 @@ train_dataset:
   rgb_mask_flag: True
   augment_depth : True
   augment_mask  : True
+  single_view_pr: 0.5
 
 train_dataloader:
   bs            : 100

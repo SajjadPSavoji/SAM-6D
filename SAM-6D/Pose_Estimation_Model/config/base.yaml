@@ -90,12 +90,12 @@ test_dataset:
   minimum_n_point: 3
   rgb_mask_flag: True
   seg_filter_score: 0.25
-  n_template_view: 42
+  n_template_view: 8
 
 
 test_dataloader:
-  bs            : 8
-  num_workers   : 8
+  bs            : 32
+  num_workers   : 32
   shuffle       : False
   drop_last     : False
   pin_memory    : False

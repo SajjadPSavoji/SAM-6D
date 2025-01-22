@@ -184,7 +184,7 @@ for synset_id in sorted(os.listdir(shapenet_orig_path)):
         continue
     for model_idx, source_id in enumerate(sorted(os.listdir(synset_fpath))):
         cur_iter += 1
-        if cur_iter < 3679: continue
+        if cur_iter < 4711: continue
         custom_progress_bar(cur_iter, total_objects, start_time)
         print('---------------------------'+str(synset_id)+'::::'+str(source_id)+'-------------------------------------')
         save_synset_folder = os.path.join(output_dir, synset_id)

@@ -24,18 +24,16 @@ class Net(nn.Module):
     def forward(self, end_points):
         dense_pm, dense_fm, dense_po, dense_fo, radius = self.feature_extraction(end_points)
 
-        # pre-compute geometric embeddings for geometric transformer
-        bg_point = torch.ones(dense_pm.size(0),1,3).float().to(dense_pm.device) * 100
-
+        # sample sparse points and get geo positional embeddings
         sparse_pm, sparse_fm, fps_idx_m = sample_pts_feats(
             dense_pm, dense_fm, self.coarse_npoint, return_index=True
         )
-        geo_embedding_m = self.geo_embedding(torch.cat([bg_point, sparse_pm], dim=1))
+        geo_embedding_m = self.geo_embedding(sparse_pm)
 
         sparse_po, sparse_fo, fps_idx_o = sample_pts_feats(
             dense_po, dense_fo, self.coarse_npoint, return_index=True
         )
-        geo_embedding_o = self.geo_embedding(torch.cat([bg_point, sparse_po], dim=1))
+        geo_embedding_o = self.geo_embedding(sparse_po)
 
         # coarse_point_matching
         end_points = self.coarse_point_matching(

@@ -300,6 +300,68 @@ class GeometricStructureEmbedding(nn.Module):
             raise ValueError(f'Unsupported reduction mode: {self.reduction_a}.')
 
     @torch.no_grad()
+    def to_GRF(self, points: torch.Tensor) -> torch.Tensor:
+        """
+        Transform input point clouds into a pose-invariant reference frame
+        WITHOUT rescaling. We only perform:
+        1) Translation (shift to centroid)
+        2) Orientation alignment (via normal/tangent directions)
+
+        Args:
+            points (torch.Tensor): (B, N, 3) batched point clouds (already scaled).
+                                Must reside on the appropriate device (e.g., GPU).
+
+        Returns:
+            torch.Tensor: (B, N, 3) GRF-transformed point clouds (no re-scaling).
+        """
+        B, N, _ = points.shape
+
+        # ---------------------------------------------------------
+        # 1) Translate to center
+        # ---------------------------------------------------------
+        c_Q = points.mean(dim=1)                          # (B, 3)
+        points_centered = points - c_Q.unsqueeze(1)       # (B, N, 3)
+
+        # ---------------------------------------------------------
+        # 2) Compute normal (r_GZ) via SVD of covariance
+        # ---------------------------------------------------------
+        cov = torch.einsum("bij,bik->bjk", points_centered, points_centered) / float(N)
+        U, S, Vh = torch.linalg.svd(cov, full_matrices=False)
+
+        # The normal is the eigenvector with the smallest singular value => last column of U
+        r_GZ = U[:, :, -1]  # (B, 3)
+        # (Optional) flip sign for consistent orientation
+        flip_mask = r_GZ[:, 2] < 0
+        r_GZ[flip_mask] = -r_GZ[flip_mask]
+        r_GZ = F.normalize(r_GZ, dim=1)
+
+        # ---------------------------------------------------------
+        # 3) Compute principal x-axis (r_GX) in tangent plane
+        # ---------------------------------------------------------
+        dot = (points_centered * r_GZ.unsqueeze(1)).sum(dim=2, keepdim=True)
+        proj = dot * r_GZ.unsqueeze(1)
+        tangent = points_centered - proj
+        r_GX = tangent.sum(dim=1)  # Weighted sum possible here
+        r_GX = F.normalize(r_GX, dim=1)
+
+        # 4) r_GY = r_GX x r_GZ, then re-orthonormalize r_GX
+        r_GY = torch.cross(r_GX, r_GZ, dim=1)
+        r_GY = F.normalize(r_GY, dim=1)
+        r_GX = torch.cross(r_GY, r_GZ, dim=1)
+        r_GX = F.normalize(r_GX, dim=1)
+
+        # ---------------------------------------------------------
+        # 5) Rotate by R_G
+        # ---------------------------------------------------------
+        # R_G = [r_GX; r_GY; r_GZ]^T
+        R_G = torch.stack([r_GX, r_GY, r_GZ], dim=1)  # (B,3,3)
+
+        # Apply rotation: Q_G = (q - c_Q) R_G
+        Q_G = points_centered.bmm(R_G)  # (B, N, 3)
+
+        return Q_G
+
+    @torch.no_grad()
     def get_embedding_indices(self, points):
         r"""Compute the indices of pair-wise distance embedding and triplet-wise angular embedding.
 
@@ -310,6 +372,13 @@ class GeometricStructureEmbedding(nn.Module):
             d_indices: torch.FloatTensor (B, N, N), distance embedding indices
             a_indices: torch.FloatTensor (B, N, N, k), angular embedding indices
         """
+        # move to GRF and add bg points
+        
+        points = self.to_GRF(points)
+        bg_points = torch.ones(points.size(0),1,3).float().to(points.device) * 100
+        points = torch.cat([bg_points, points], dim=1)
+
+        # rest of original code
         batch_size, num_point, _ = points.shape
 
         dist_map = torch.sqrt(pairwise_distance(points, points))  # (B, N, N)

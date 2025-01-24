@@ -406,6 +406,9 @@ class Dataset():
         if self.augment_mask:
             mask = mask.astype(np.float32)
             mask = self.template_mask_augmentor(mask)
+            #check if mask is still useful
+            if np.sum(mask>0) == 0:
+                return None, None, None
 
         bbox = get_bbox(mask)
         y1,y2,x1,x2 = bbox

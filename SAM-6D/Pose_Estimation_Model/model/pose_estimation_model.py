@@ -22,7 +22,7 @@ class Net(nn.Module):
         self.fine_point_matching = FinePointMatching(cfg.fine_point_matching)
 
     def forward(self, end_points):
-        dense_pm, dense_fm, dense_po, dense_fo, radius = self.feature_extraction(end_points)
+        dense_pm, dense_fm, dense_po, dense_fo, radius, center = self.feature_extraction(end_points)
 
         # sample sparse points and get geo positional embeddings
         sparse_pm, sparse_fm, fps_idx_m = sample_pts_feats(

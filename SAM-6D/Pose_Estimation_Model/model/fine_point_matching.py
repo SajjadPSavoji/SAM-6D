@@ -7,6 +7,7 @@ from model_utils import compute_feature_similarity, compute_fine_Rt
 from loss_utils import compute_correspondence_loss
 from pointnet2_utils import QueryAndGroup
 from pytorch_utils import SharedMLP, Conv1d
+from feature_extraction import sphere_points, sphere_pose
 
 
 class FinePointMatching(nn.Module):
@@ -36,7 +37,7 @@ class FinePointMatching(nn.Module):
             ))
         self.transformers = nn.ModuleList(self.transformers)
 
-    def forward(self, p1, f1, geo1, fps_idx1, p2, f2, geo2, fps_idx2, radius, end_points):
+    def forward(self, p1, f1, geo1, fps_idx1, p2, f2, geo2, fps_idx2, center, radius, end_points):
         B = p1.size(0)
 
         init_R = end_points['init_R']
@@ -63,8 +64,7 @@ class FinePointMatching(nn.Module):
                 ))
 
         if self.training:
-            gt_R = end_points['rotation_label']
-            gt_t = end_points['translation_label'] / (radius.reshape(-1, 1)+1e-6)
+            gt_R, gt_t = sphere_pose(end_points['rotation_label'], end_points['translation_label'], center, radius)
 
             end_points = compute_correspondence_loss(
                 end_points, atten_list, p1, p2, gt_R, gt_t,
@@ -74,10 +74,10 @@ class FinePointMatching(nn.Module):
         else:
             pred_R, pred_t, pred_pose_score = compute_fine_Rt(
                 atten_list[-1], p1, p2,
-                end_points['model'] / (radius.reshape(-1, 1, 1) + 1e-6),
+                sphere_points(end_points['model'], center, radius),
             )
             end_points['pred_R'] = pred_R
-            end_points['pred_t'] = pred_t * (radius.reshape(-1, 1)+1e-6)
+            end_points['pred_t'] = pred_t
             end_points['pred_pose_score'] = pred_pose_score
 
         if self.return_feat:
@@ -123,4 +123,3 @@ class PositionalEncoding(nn.Module):
         feat = torch.cat([feat1, feat2], dim=1).squeeze(-1)
         feat = self.mlp3(feat).transpose(1,2)
         return feat
-

@@ -405,11 +405,16 @@ class Dataset():
         # augment mask
         if self.augment_mask:
             mask = mask.astype(np.float32)
+            total_visible = np.sum(mask>0)
             mask = self.template_mask_augmentor(mask)
             #check if mask is still useful
-            if np.sum(mask>0) == 0:
+            #check min vsible fraction
+            now_visible = np.sum(mask>0)
+            if now_visible < self.min_visib_px:
                 return None, None, None
-
+            if now_visible/total_visible < self.min_visib_frac:
+                return None, None, None
+            
         bbox = get_bbox(mask)
         y1,y2,x1,x2 = bbox
         mask = mask[y1:y2, x1:x2]
@@ -426,6 +431,10 @@ class Dataset():
         rgb = self.transform(np.array(rgb))
 
         choose = mask.astype(np.float32).flatten().nonzero()[0]
+        # apply the same min_pts_count to templates
+        if len(choose) < self.min_pts_count:
+            return None, None, None
+
         if len(choose) <= self.n_sample_template_point:
             choose_idx = np.random.choice(np.arange(len(choose)), self.n_sample_template_point)
         else:

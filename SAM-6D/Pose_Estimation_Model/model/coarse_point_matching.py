@@ -9,6 +9,7 @@ from model_utils import (
 )
 from loss_utils import compute_correspondence_loss
 
+from feature_extraction import sphere_points, sphere_pose
 
 
 class CoarsePointMatching(nn.Module):
@@ -35,7 +36,7 @@ class CoarsePointMatching(nn.Module):
             ))
         self.transformers = nn.ModuleList(self.transformers)
 
-    def forward(self, p1, f1, geo1, p2, f2, geo2, radius, end_points):
+    def forward(self, p1, f1, geo1, p2, f2, geo2, center, radius, end_points):
         B = f1.size(0)
 
         f1 = self.in_proj(f1)
@@ -57,8 +58,7 @@ class CoarsePointMatching(nn.Module):
                 ))
 
         if self.training:
-            gt_R = end_points['rotation_label']
-            gt_t = end_points['translation_label'] / (radius.reshape(-1, 1)+1e-6)
+            gt_R, gt_t = sphere_pose(end_points['rotation_label'], end_points['translation_label'], center, radius)
             init_R, init_t = aug_pose_noise(gt_R, gt_t)
 
             end_points = compute_correspondence_loss(
@@ -69,7 +69,7 @@ class CoarsePointMatching(nn.Module):
         else:
             init_R, init_t = compute_coarse_Rt(
                 atten_list[-1], p1, p2,
-                end_points['model'] / (radius.reshape(-1, 1, 1) + 1e-6),
+                sphere_points(end_points['model'], center, radius),
                 self.cfg.nproposal1, self.cfg.nproposal2,
             )
         end_points['init_R'] = init_R

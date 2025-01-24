@@ -136,6 +136,11 @@ class ViTEncoder(nn.Module):
             dense_po = end_points['dense_po'].clone()
             dense_fo = end_points['dense_fo'].clone()
 
+            # translate to origin
+            center_po = dense_po.mean(dim=1, keepdim=True) #(B, 1, 3)
+            dense_po = dense_po - center_po
+            dense_pm = dense_pm - center_po
+
             # normalize point clouds
             radius = torch.norm(dense_po, dim=2).max(1)[0]
             dense_pm = dense_pm / (radius.reshape(-1, 1, 1) + 1e-6)
@@ -149,8 +154,17 @@ class ViTEncoder(nn.Module):
             tem2_choose = end_points['tem2_choose']
             tem2_pts = end_points['tem2_pts']
 
-            # normalize point clouds
+            # get dense point of object
             dense_po = torch.cat([tem1_pts, tem2_pts], dim=1)
+
+            # translate to origin
+            center_po = dense_po.mean(dim=1, keepdim=True) #(B, 1, 3)
+            dense_po  = dense_po - center_po
+            dense_pm  = dense_pm - center_po
+            tem1_pts  = tem1_pts - center_po
+            tem2_pts  = tem2_pts - center_po
+
+            # normalize point clouds
             radius = torch.norm(dense_po, dim=2).max(1)[0]
             dense_pm = dense_pm / (radius.reshape(-1, 1, 1) + 1e-6)
             tem1_pts = tem1_pts / (radius.reshape(-1, 1, 1) + 1e-6)
@@ -162,7 +176,7 @@ class ViTEncoder(nn.Module):
                 [tem1_choose, tem2_choose]
             )
 
-        return dense_pm, dense_fm, dense_po, dense_fo, radius
+        return dense_pm, dense_fm, dense_po, dense_fo, radius, center_po
 
     def get_img_feats(self, img, choose):
         return get_chosen_pixel_feats(self.rgb_net(img)[0], choose)

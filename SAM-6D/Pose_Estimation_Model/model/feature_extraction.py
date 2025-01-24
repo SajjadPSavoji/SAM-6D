@@ -136,15 +136,13 @@ class ViTEncoder(nn.Module):
             dense_po = end_points['dense_po'].clone()
             dense_fo = end_points['dense_fo'].clone()
 
-            # translate to origin
-            center_po = dense_po.mean(dim=1, keepdim=True) #(B, 1, 3)
-            dense_po = dense_po - center_po
-            dense_pm = dense_pm - center_po
-
-            # normalize point clouds
+            # get center and scale
+            center = dense_po.mean(dim=1, keepdim=True) #(B, 1, 3)
             radius = torch.norm(dense_po, dim=2).max(1)[0]
-            dense_pm = dense_pm / (radius.reshape(-1, 1, 1) + 1e-6)
-            dense_po = dense_po / (radius.reshape(-1, 1, 1) + 1e-6)
+
+            # translate to origin and normalize
+            dense_po = sphere_points(dense_po, center, radius)
+            dense_pm = sphere_points(dense_pm, center, radius)            
 
         else:
             tem1_rgb = end_points['tem1_rgb']
@@ -157,18 +155,15 @@ class ViTEncoder(nn.Module):
             # get dense point of object
             dense_po = torch.cat([tem1_pts, tem2_pts], dim=1)
 
-            # translate to origin
-            center_po = dense_po.mean(dim=1, keepdim=True) #(B, 1, 3)
-            dense_po  = dense_po - center_po
-            dense_pm  = dense_pm - center_po
-            tem1_pts  = tem1_pts - center_po
-            tem2_pts  = tem2_pts - center_po
-
-            # normalize point clouds
+            # get center and scale
+            center = dense_po.mean(dim=1, keepdim=True) #(B, 1, 3)
             radius = torch.norm(dense_po, dim=2).max(1)[0]
-            dense_pm = dense_pm / (radius.reshape(-1, 1, 1) + 1e-6)
-            tem1_pts = tem1_pts / (radius.reshape(-1, 1, 1) + 1e-6)
-            tem2_pts = tem2_pts / (radius.reshape(-1, 1, 1) + 1e-6)
+
+            # translate to origin and normaliz
+            dense_po = sphere_points(dense_po, center, radius)
+            dense_pm = sphere_points(dense_pm, center, radius)
+            tem1_pts = sphere_points(tem1_pts, center, radius)
+            tem2_pts = sphere_points(tem2_pts, center, radius)
 
             dense_po, dense_fo = self.get_obj_feats(
                 [tem1_rgb, tem2_rgb],
@@ -176,7 +171,7 @@ class ViTEncoder(nn.Module):
                 [tem1_choose, tem2_choose]
             )
 
-        return dense_pm, dense_fm, dense_po, dense_fo, radius, center_po
+        return dense_pm, dense_fm, dense_po, dense_fo, center, radius
 
     def get_img_feats(self, img, choose):
         return get_chosen_pixel_feats(self.rgb_net(img)[0], choose)
@@ -195,4 +190,132 @@ class ViTEncoder(nn.Module):
         return sample_pts_feats(tem_pts, tem_feat, npoint)
 
 
+def sphere_points(points, center, radius, eps=1e-6):
+    """
+    Translate and scale a batch of point clouds so that `center` is the new origin
+    and `radius` is the new scaling factor.
 
+    Args:
+        points (torch.Tensor):  (B, N, 3), the batch of point clouds.
+        center (torch.Tensor):  (B, 1, 3), the centers used for translation.
+        radius (torch.Tensor):  (B,), the scaling factor for each batch
+        eps (float):            Small constant to avoid division by zero.
+
+    Returns:
+        torch.Tensor: (B, N, 3), the translated and scaled point clouds.
+    """
+    # radius is shape (B,)
+    # reshape to (B,1,1)
+    if radius.dim() == 1:
+        radius = radius.view(-1, 1, 1)
+
+    # 1) Translate by subtracting the center
+    points_centered = points - center  # (B,N,3) - (B,1,3) -> (B,N,3)
+
+    # 2) Scale by dividing by radius (plus small eps for numerical safety)
+    points_sphered = points_centered / (radius + eps)  # broadcast -> (B,N,3)
+
+    return points_sphered
+
+def desphere_points(points_sphered: torch.Tensor,
+                    center: torch.Tensor,
+                    radius: torch.Tensor,
+                    eps: float = 1e-6) -> torch.Tensor:
+    """
+    Reverses the `sphere_points` transformation. Given sphered points,
+    this function recovers their original position/scale before
+    centering and radius-scaling were applied.
+
+    Args:
+        points_sphered (torch.Tensor): (B, N, 3), batch of previously sphered point clouds.
+        center (torch.Tensor):         (B, 1, 3), centers used for the original translation.
+        radius (torch.Tensor):         (B,),      radii used for the original scaling.
+        eps (float):                   Small constant to match the one used
+                                       in `sphere_points` to avoid division by zero.
+
+    Returns:
+        torch.Tensor: (B, N, 3), the original point clouds before `sphere_points`.
+    """
+    # Reshape radius for broadcasting, matching the shape in sphere_points
+    if radius.dim() == 1:
+        radius = radius.view(-1, 1, 1)
+
+    # 1) Undo the scaling
+    points_rescaled = points_sphered * (radius + eps)
+
+    # 2) Undo the translation
+    points_original = points_rescaled + center
+
+    return points_original
+    
+
+def sphere_pose(R: torch.Tensor,
+                T: torch.Tensor,
+                centre: torch.Tensor,   # (B, 1, 3)
+                radius: torch.Tensor   # (B,)
+               ) -> (torch.Tensor, torch.Tensor):
+    """
+    Given the original rotation & translation (R, T), as well as the point-cloud
+    centre and radius used for normalization, compute (R_norm, T_norm)
+    in the normalized space.
+    
+    Args:
+        R (torch.Tensor):       (B, 3, 3) rotation in original coords
+        T (torch.Tensor):       (B, 3)    translation in original coords
+        centre (torch.Tensor):  (B, 1, 3) centre of the source point cloud
+        radius (torch.Tensor):  (B,)      scaling factor for each batch
+
+    Returns:
+        R_norm (torch.Tensor): (B, 3, 3) rotation in normalized coords
+        T_norm (torch.Tensor): (B, 3)    translation in normalized coords
+    """
+    # -- Rotation is unchanged by uniform scaling
+    R_norm = R
+
+    # -- "C" is (B,3)
+    C = centre.squeeze(1)  # (B,1,3) -> (B,3)
+
+    # -- We need T_norm = (T + R*C - C) / r
+    #    Expand shapes for batch:
+    #    R:      (B,3,3)
+    #    C:      (B,3)
+    #    T:      (B,3)
+    #    radius: (B,)
+    # 1) R*C via batch-matrix multiply
+    RC = torch.bmm(R, C.unsqueeze(-1)).squeeze(-1)  # (B,3)
+    # 2) Broadcast radius as (B,1) to divide a (B,3)
+    T_norm = (T + RC - C) / radius.unsqueeze(-1)    # (B,3)
+
+    return R_norm, T_norm
+
+
+def desphere_pose(R_norm: torch.Tensor,
+                  T_norm: torch.Tensor,
+                  centre: torch.Tensor,  # (B,1,3)
+                  radius: torch.Tensor   # (B,)
+                 ) -> (torch.Tensor, torch.Tensor):
+    """
+    Recover the original rotation (R) and translation (T) in unnormalized coords,
+    given the normalized (R_norm, T_norm) from `sphere_pose`.
+    
+    Args:
+        R_norm (torch.Tensor):   (B, 3, 3) rotation in normalized coords
+        T_norm (torch.Tensor):   (B, 3)    translation in normalized coords
+        centre (torch.Tensor):   (B, 1, 3) centre of the source point cloud
+        radius (torch.Tensor):   (B,)      scaling factor used to sphere
+
+    Returns:
+        R (torch.Tensor): (B, 3, 3) rotation in original coords
+        T (torch.Tensor): (B, 3)    translation in original coords
+    """
+    # -- Rotation is unchanged by uniform scaling
+    R = R_norm
+
+    # -- "C" is (B,3)
+    C = centre.squeeze(1)  # (B,1,3) -> (B,3)
+
+    # -- We need T = C + r*T_norm - R*C
+    RC = torch.bmm(R, C.unsqueeze(-1)).squeeze(-1)     # (B,3)
+    T = C + radius.unsqueeze(-1) * T_norm - RC         # (B,3)
+
+    return R, T

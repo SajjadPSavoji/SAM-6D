@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from feature_extraction import ViTEncoder
+from feature_extraction import ViTEncoder, desphere_pose, desphere_points
 from coarse_point_matching import CoarsePointMatching
 from fine_point_matching import FinePointMatching
 from transformer import GeometricStructureEmbedding
@@ -22,7 +22,7 @@ class Net(nn.Module):
         self.fine_point_matching = FinePointMatching(cfg.fine_point_matching)
 
     def forward(self, end_points):
-        dense_pm, dense_fm, dense_po, dense_fo, radius, center = self.feature_extraction(end_points)
+        dense_pm, dense_fm, dense_po, dense_fo, center, radius = self.feature_extraction(end_points)
 
         # sample sparse points and get geo positional embeddings
         sparse_pm, sparse_fm, fps_idx_m = sample_pts_feats(
@@ -39,14 +39,18 @@ class Net(nn.Module):
         end_points = self.coarse_point_matching(
             sparse_pm, sparse_fm, geo_embedding_m,
             sparse_po, sparse_fo, geo_embedding_o,
-            radius, end_points,
+            center, radius, end_points,
         )
 
         # fine_point_matching
         end_points = self.fine_point_matching(
             dense_pm, dense_fm, geo_embedding_m, fps_idx_m,
             dense_po, dense_fo, geo_embedding_o, fps_idx_o,
-            radius, end_points
+            center, radius, end_points
         )
 
+        # de-sphere pose to match original coordinates
+        end_points['pred_R'], end_points['pred_t'] = desphere_pose(
+            end_points['pred_R'], end_points['pred_t'], center, radius)
+        
         return end_points

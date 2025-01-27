@@ -291,9 +291,8 @@ class Dataset():
 
         tem1_rgb, tem1_choose, tem1_pts = self._get_template(dataset_type, obj_id, tem_idx0)
         tem2_rgb, tem2_choose, tem2_pts = self._get_template(dataset_type, obj_id, tem_idx1)
-        if tem1_rgb is None:
+        if tem1_rgb is None or tem2_rgb is None:
             return None
-
 
         # mask
         mask = io_load_masks(open(os.path.join(self.data_dir, path_head+'.mask_visib.json'), 'rb'))[valid_idx]

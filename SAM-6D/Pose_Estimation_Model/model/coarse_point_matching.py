@@ -35,7 +35,7 @@ class CoarsePointMatching(nn.Module):
             ))
         self.transformers = nn.ModuleList(self.transformers)
 
-    def forward(self, p1, f1, geo1, p2, f2, geo2, radius, end_points):
+    def forward(self, p1, f1, geo1, p2, f2, geo2, radius, end_points, p1_dense, p2_dense):
         B = f1.size(0)
 
         f1 = self.in_proj(f1)
@@ -69,6 +69,7 @@ class CoarsePointMatching(nn.Module):
         else:
             init_R, init_t = compute_coarse_Rt(
                 atten_list[-1], p1, p2,
+                p1_dense,
                 end_points['model'] / (radius.reshape(-1, 1, 1) + 1e-6),
                 self.cfg.nproposal1, self.cfg.nproposal2,
             )

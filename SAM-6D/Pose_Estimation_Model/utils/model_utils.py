@@ -183,11 +183,47 @@ def aug_pose_noise(gt_r, gt_t,
 
     return rand_rot.detach(), rand_trans.detach()
 
+def upsample_weights(
+    sparse_pts: torch.Tensor,
+    dense_pts: torch.Tensor,
+    wights: torch.Tensor
+) -> torch.Tensor:
+    """
+    Upsample wights from sparse_pts to dense_pts using nearest-neighbor assignment.
+    
+    Args:
+        sparse_pts (torch.Tensor): Shape [B, N1, 3], the downsampled (sparse) point cloud.
+        dense_pts  (torch.Tensor): Shape [B, N2, 3], the full (dense) point cloud.
+        wights     (torch.Tensor): Shape [B, N1], weights corresponding to sparse_pts.
+
+    Returns:
+        torch.Tensor: Upsampled weights (wights) of shape [B, N2], aligned with dense_pts.
+    """
+    # Compute pairwise distances between dense_pts and sparse_pts
+    # dists will have shape [B, N2, N1]
+    dists = torch.cdist(dense_pts, sparse_pts, p=2)  # Euclidean distance
+    
+    # Find the index of the nearest neighbor in sparse_pts for each point in dense_pts
+    # nn_idx will have shape [B, N2]
+    nn_idx = dists.argmin(dim=2)
+    
+    # Gather the corresponding weights for each nearest neighbor
+    # We need to gather along the second dimension of wights
+    # But first expand batch indices to match nn_idx shape
+    batch_size = sparse_pts.shape[0]
+    batch_indices = torch.arange(batch_size, device=sparse_pts.device).unsqueeze(1).expand_as(nn_idx)
+    
+    # Perform the gather operation: shape -> [B, N2]
+    upsampled_wights = wights[batch_indices, nn_idx]
+    
+    return upsampled_wights
+
 
 def compute_coarse_Rt(
     atten,
     pts1,
     pts2,
+    obser_pts=None,
     model_pts=None,
     n_proposal1=6000,
     n_proposal2=300,
@@ -235,11 +271,18 @@ def compute_coarse_Rt(
     pred_ts = torch.gather(pred_ts, 1, idx.reshape(B,n_proposal2,1,1).repeat(1,1,1,3))
 
     # pose selection
-    transformed_pts = (pts1.unsqueeze(1) - pred_ts) @ pred_rs
+    if obser_pts is None:
+        obser_pts = pts1
+
+    obser_pts = pts1
+    
+    obser_weights = upsample_weights(pts1, obser_pts, weights1)
+
+    transformed_pts = (obser_pts.unsqueeze(1) - pred_ts) @ pred_rs
     transformed_pts = transformed_pts.reshape(B*n_proposal2, -1, 3)
     dis = torch.sqrt(pairwise_distance(transformed_pts, expand_model_pts))
     dis = dis.min(2)[0].reshape(B, n_proposal2, -1)
-    scores = weights1.unsqueeze(1).sum(2) / ((dis * weights1.unsqueeze(1)).sum(2) + + 1e-8)
+    scores = obser_weights.unsqueeze(1).sum(2) / ((dis * obser_weights.unsqueeze(1)).sum(2) + + 1e-8)
     idx = scores.max(1)[1]
     pred_R = torch.gather(pred_rs, 1, idx.reshape(B,1,1,1).repeat(1,1,3,3)).squeeze(1)
     pred_t = torch.gather(pred_ts, 1, idx.reshape(B,1,1,1).repeat(1,1,1,3)).squeeze(2).squeeze(1)

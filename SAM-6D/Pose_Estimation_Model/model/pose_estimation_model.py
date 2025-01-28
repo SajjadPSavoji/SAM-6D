@@ -42,6 +42,7 @@ class Net(nn.Module):
             sparse_pm, sparse_fm, geo_embedding_m,
             sparse_po, sparse_fo, geo_embedding_o,
             radius, end_points,
+            dense_pm, dense_po
         )
 
         # fine_point_matching

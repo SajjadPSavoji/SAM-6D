@@ -184,6 +184,233 @@ def aug_pose_noise(gt_r, gt_t,
     return rand_rot.detach(), rand_trans.detach()
 
 
+def get_knn_pts_fts(
+    pts: torch.Tensor,
+    dense_pts: torch.Tensor,
+    dense_fts: torch.Tensor,
+    k: int = 10
+):
+    """
+    For each 3D point in 'pts', retrieve the k nearest neighbors from 'dense_pts'
+    and, if provided, also gather the corresponding features from 'dense_fts'.
+
+    Args:
+        pts (torch.Tensor): [B, n_hypo, 3, 3].
+            - B = batch size
+            - n_hypo = number of hypotheses
+            - 3 points per hypothesis
+            - each point is 3D
+        dense_pts (torch.Tensor): [B, L, 3]
+            - B = batch size
+            - L = number of dense points
+            - each point is 3D
+        dense_fts (torch.Tensor, optional): [B, L, D]
+            - B = batch size
+            - L = number of dense points
+            - D = feature dimension per point
+            - If None, we skip feature gathering
+        k (int): number of nearest neighbors to retrieve
+
+    Returns:
+        neighbors (torch.Tensor): [B, n_hypo, 3, k, 3]
+            - k nearest neighbor coordinates for each point
+        neighbors_fts (torch.Tensor or None): [B, n_hypo, 3, k, D]
+            - corresponding features for the k neighbors (if dense_fts is not None),
+              otherwise None
+    """
+    device = pts.device
+    B, n_hypo, _, _ = pts.shape  # pts is [B, n_hypo, 3, 3]
+    
+    # 1) Flatten pts so each row is (x, y, z) for distance computation
+    #    pts_flat => [B, n_hypo * 3, 3]
+    pts_flat = pts.view(B, n_hypo * 3, 3)
+
+    # 2) Compute pairwise distances: [B, (n_hypo * 3), L]
+    dists = torch.cdist(pts_flat, dense_pts, p=2)
+
+    # 3) k-NN indices (smallest distances): [B, (n_hypo * 3), k]
+    _, knn_indices = torch.topk(dists, k, dim=2, largest=False)
+
+    # 4) Advanced indexing to retrieve neighbor coordinates:
+    #    Build a batch index [B, (n_hypo * 3), k].
+    B_idx = torch.arange(B, device=device).view(-1, 1, 1).expand(-1, n_hypo * 3, k)
+
+    # neighbors => [B, (n_hypo * 3), k, 3]
+    neighbors = dense_pts[B_idx, knn_indices, :]
+
+    # Reshape to [B, n_hypo, 3, k, 3]
+    neighbors = neighbors.view(B, n_hypo, 3, k, 3)
+
+    # 5) If features are provided, gather them as well
+    # dense_fts => [B, L, D]
+    # neighbors_fts => [B, (n_hypo * 3), k, D]
+    neighbors_fts = dense_fts[B_idx, knn_indices, :]
+
+    # Reshape => [B, n_hypo, 3, k, D]
+    D = dense_fts.shape[-1]
+    neighbors_fts = neighbors_fts.view(B, n_hypo, 3, k, D)
+
+    return neighbors, neighbors_fts
+
+
+def compute_feature_similarity_5d(
+    feat1: torch.Tensor,
+    feat2: torch.Tensor,
+    similarity_type: str = 'cosine',
+    temp: float = 1.0,
+    normalize_feat: bool = True
+) -> torch.Tensor:
+    r"""
+    Compute similarity between two 5D feature tensors:
+    - feat1, feat2: [B, n_hypo, 3, k, D]
+
+    Returns:
+        sim_mat: [B, n_hypo, 3, k, k] similarity matrix
+    """
+
+    B, n_hypo, _, k, D = feat1.shape
+    assert feat2.shape == (B, n_hypo, 3, k, D), \
+        "feat2 must match feat1's shape [B, n_hypo, 3, k, D]."
+
+    # 1) Optionally L2-normalize feats along the last dim
+    if normalize_feat:
+        feat1 = F.normalize(feat1, p=2, dim=-1)  # along D
+        feat2 = F.normalize(feat2, p=2, dim=-1)
+
+    # 2) Reshape to 3D for simpler batch matmul
+    #    We combine [B, n_hypo, 3] into a single dimension => B' = B * n_hypo * 3
+    Bp = B * n_hypo * 3  # "flattened" batch
+    feat1_3d = feat1.view(Bp, k, D)  # [B', k, D]
+    feat2_3d = feat2.view(Bp, k, D)  # [B', k, D]
+
+    if similarity_type == 'cosine':
+        # Dot product => [B', k, k]
+        sim_3d = torch.bmm(feat1_3d, feat2_3d.transpose(1, 2))
+    elif similarity_type == 'L2':
+        # Example: negative L2 distance or some measure
+        # (But typically you'd do pairwise_distance here.)
+        # We'll show a placeholder for demonstration.
+        # If you truly want L2, you might do something like:
+        #   dist_3d = torch.cdist(feat1_3d, feat2_3d, p=2)
+        #   sim_3d = -dist_3d  # or some function
+        dist_3d = torch.cdist(feat1_3d, feat2_3d, p=2)
+        sim_3d = -dist_3d  # turning distance into "similarity"
+    else:
+        raise ValueError(f"Unknown similarity type: {similarity_type}")
+
+    # 3) Reshape back to [B, n_hypo, 3, k, k]
+    sim_mat = sim_3d.view(B, n_hypo, 3, k, k)
+
+    # 4) Apply temperature scaling
+    sim_mat = sim_mat / temp
+
+    return sim_mat
+
+import torch
+
+def sinkhorn(
+    score_mat: torch.Tensor,
+    num_iterations: int = 10
+) -> torch.Tensor:
+    r"""
+    1) Perform log-domain Sinkhorn on a 5D input of shape [B, n_hypo, 3, k, k].
+    2) Exponentiate to get a normal (k x k) plan for each cluster.
+    3) Embed these three (k x k) blocks into a [B, n_hypo, 3k, 3k] block-diagonal
+       matrix with zeros off-diagonal, *without* looping over the cluster dimension.
+
+    Args:
+        score_mat (torch.Tensor): [B, n_hypo, 3, k, k]
+          e.g., a similarity or negative distance matrix
+        num_iterations (int): number of Sinkhorn iterations
+
+    Returns:
+        transport_4d (torch.Tensor): [B, n_hypo, 3k, 3k]
+            Block-diagonal matrix with each (k x k) sub-block on the diagonal
+            and zeros elsewhere (no cluster cross-match).
+    """
+    device = score_mat.device
+    dtype = score_mat.dtype
+
+    B, n_hypo, n_clusters, k, k2 = score_mat.shape
+    assert n_clusters == 3, "This example assumes exactly 3 clusters."
+    assert k == k2, "score_mat's last two dims must be (k, k)."
+
+    # ---------------------------------------------------------------------
+    # 1) Flatten -> [B', k, k], where B' = B*n_hypo*n_clusters
+    # ---------------------------------------------------------------------
+    Bp = B * n_hypo * n_clusters
+    score_mat_3d = score_mat.view(Bp, k, k)  # shape [B', k, k]
+
+    # ---------------------------------------------------------------------
+    # 2) Sinkhorn in log domain
+    # ---------------------------------------------------------------------
+    u = torch.zeros(Bp, k, device=device, dtype=dtype)
+    v = torch.zeros(Bp, k, device=device, dtype=dtype)
+
+    for _ in range(num_iterations):
+        row_logsum = torch.logsumexp(score_mat_3d + v.unsqueeze(1), dim=2)  # [B', k]
+        u = -row_logsum
+        col_logsum = torch.logsumexp(score_mat_3d + u.unsqueeze(2), dim=1)  # [B', k]
+        v = -col_logsum
+
+    log_transport_3d = score_mat_3d + u.unsqueeze(2) + v.unsqueeze(1)
+
+    # Reshape back to [B, n_hypo, 3, k, k] and exponentiate
+    log_transport_5d = log_transport_3d.view(B, n_hypo, n_clusters, k, k)
+    transport_5d = torch.exp(log_transport_5d)  # shape => [B, n_hypo, 3, k, k]
+
+    # ---------------------------------------------------------------------
+    # 3) Build the final [B, n_hypo, 3k, 3k] block-diagonal matrix WITHOUT looping
+    # ---------------------------------------------------------------------
+    # Allocate output
+    transport_4d = torch.zeros(
+        (B, n_hypo, n_clusters*k, n_clusters*k),
+        device=device,
+        dtype=dtype
+    )
+
+    # We want:
+    #   transport_4d[b, n, i*k + row, i*k + col] = transport_5d[b, n, i, row, col]
+    #
+    # We'll do this in a single advanced-indexing assignment.
+
+    # 3.1) Build the per-cluster row/col offsets
+    cluster_idx = torch.arange(n_clusters, device=device).view(-1, 1, 1)  # [3,1,1]
+    row_idx     = torch.arange(k, device=device).view(1, -1, 1)          # [1,k,1]
+    col_idx     = torch.arange(k, device=device).view(1, 1, -1)          # [1,1,k]
+
+    # final_row, final_col => [3, k, k]  with block offsets
+    final_row = cluster_idx * k + row_idx  # shape [3,k,k]
+    final_col = cluster_idx * k + col_idx  # shape [3,k,k]
+
+    # 3.2) We also need batch/hypo indexing to broadcast
+    # For the left side: transport_4d[:, :, final_row, final_col]
+    # For the right side: transport_5d[:, :, cluster_idx, row_idx, col_idx]
+    B_idx = torch.arange(B, device=device).view(-1, 1, 1, 1, 1)            # [B,1,1,1,1]
+    N_idx = torch.arange(n_hypo, device=device).view(1, -1, 1, 1, 1)       # [1,n_hypo,1,1,1]
+
+    # Expand final_row/final_col to [1,1,3,k,k], cluster_idx/row_idx/col_idx likewise
+    final_row = final_row.unsqueeze(0).unsqueeze(0)  # => [1,1,3,k,k]
+    final_col = final_col.unsqueeze(0).unsqueeze(0)
+    cluster_idx = cluster_idx.unsqueeze(0).unsqueeze(0)  # => [1,1,3,1,1]
+    row_idx     = row_idx.unsqueeze(0).unsqueeze(0)      # => [1,1,3,k,1]
+    col_idx     = col_idx.unsqueeze(0).unsqueeze(0)      # => [1,1,3,1,k]
+
+    # 3.3) Advanced indexing (both sides match shape [B, n_hypo, 3, k, k])
+    # Left side => transport_4d[B_idx, N_idx, final_row, final_col]
+    # Right side => transport_5d[B_idx, N_idx, cluster_idx, row_idx, col_idx]
+    transport_4d[B_idx, N_idx, final_row, final_col] = transport_5d[
+        B_idx,
+        N_idx,
+        cluster_idx,
+        row_idx,
+        col_idx
+    ]
+
+    return transport_4d
+
+
+
 def compute_coarse_Rt(
     atten,
     pts1,
@@ -191,7 +418,12 @@ def compute_coarse_Rt(
     model_pts=None,
     n_proposal1=6000,
     n_proposal2=300,
+    dense_pts1=None,
+    dense_fts1=None,
+    dense_pts2=None,
+    dense_fts2=None
 ):
+
     WSVD = WeightedProcrustes()
 
     B, N1, _ = pts1.size()
@@ -220,10 +452,26 @@ def compute_coarse_Rt(
     idx1, idx2 = idx.div(N2, rounding_mode='floor'), idx % N2
     idx1 = torch.clamp(idx1, max=N1-1).unsqueeze(2).repeat(1,1,3)
     idx2 = torch.clamp(idx2, max=N2-1).unsqueeze(2).repeat(1,1,3)
+   
+    p1 = torch.gather(pts1, 1, idx1).reshape(B,n_proposal1,3,3)
+    p2 = torch.gather(pts2, 1, idx2).reshape(B,n_proposal1,3,3)
 
-    p1 = torch.gather(pts1, 1, idx1).reshape(B,n_proposal1,3,3).reshape(B*n_proposal1,3,3)
-    p2 = torch.gather(pts2, 1, idx2).reshape(B,n_proposal1,3,3).reshape(B*n_proposal1,3,3)
-    pred_rs, pred_ts = WSVD(p2, p1, None)
+    p1_neighbors, p1_neighbors_fts = get_knn_pts_fts(p1, dense_pts1, dense_fts1) #[B, n_hypo, 3, k, 3], [B, n_hypo, 3, k, D]
+    p2_neighbors, p2_neighbors_fts = get_knn_pts_fts(p2, dense_pts2, dense_fts2)
+    scores_p1_p2_neighbors = compute_feature_similarity_5d(p1_neighbors_fts, p2_neighbors_fts) #[B, n_hypo, 3, k, k]
+    assignment_p1_p2_neighbors = sinkhorn(scores_p1_p2_neighbors) #[B, n_hypo, 3k, 3k]
+    p1_neighbors = p1_neighbors.reshape(B, n_proposal1, -1, 3) #[B, n_hypo, 3k, 3]
+    p2_neighbors = p2_neighbors.reshape(B, n_proposal1, -1, 3) #[B, n_hypo, 3k, 3]
+    row_sums = assignment_p1_p2_neighbors.sum(dim=3, keepdim=True) + 1e-6     #    shape => [B, n_hypo, 3k, 1]
+    normalized_assign = assignment_p1_p2_neighbors / row_sums     #    shape => [B, n_hypo, 3k, 3k]
+    B, n_hypo, three_k, _ = assignment_p1_p2_neighbors.shape
+    normalized_assign_4d = normalized_assign.view(B * n_hypo, three_k, three_k) # [B*n_hypo, 3k, 3k]
+    p2_neighbors_4d = p2_neighbors.view(B * n_hypo, three_k, 3) # [B*n_hypo, 3k, 3]
+    pred_p2_soft_4d = torch.bmm(normalized_assign_4d, p2_neighbors_4d) # [B*n_hypo, 3k, 3]
+    assignment_score = assignment_p1_p2_neighbors.sum(dim=3).view(B * n_hypo, three_k)  # [B, n_hypo, 3k]
+    pred_p1_hard_4d = p1_neighbors.view(B * n_hypo, three_k, 3)
+
+    pred_rs, pred_ts = WSVD(pred_p2_soft_4d, pred_p1_hard_4d, assignment_score)
     pred_rs = pred_rs.reshape(B, n_proposal1, 3, 3)
     pred_ts = pred_ts.reshape(B, n_proposal1, 1, 3)
 

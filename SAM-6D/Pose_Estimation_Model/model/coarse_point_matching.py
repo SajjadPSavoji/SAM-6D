@@ -35,7 +35,8 @@ class CoarsePointMatching(nn.Module):
             ))
         self.transformers = nn.ModuleList(self.transformers)
 
-    def forward(self, p1, f1, geo1, p2, f2, geo2, radius, end_points):
+    def forward(self, p1, f1, geo1, p2, f2, geo2, radius, end_points,
+                             dense_p1, dense_f1, dense_p2, dense_f2):
         B = f1.size(0)
 
         f1 = self.in_proj(f1)
@@ -71,6 +72,8 @@ class CoarsePointMatching(nn.Module):
                 atten_list[-1], p1, p2,
                 end_points['model'] / (radius.reshape(-1, 1, 1) + 1e-6),
                 self.cfg.nproposal1, self.cfg.nproposal2,
+                dense_p1, dense_f1,
+                dense_p2, dense_f2
             )
         end_points['init_R'] = init_R
         end_points['init_t'] = init_t

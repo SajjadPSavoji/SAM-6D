@@ -52,6 +52,17 @@ model:
     sim_type: cosine
     normalize_feat: True
     loss_dis_thres: 0.15
+  GeoEncoder:
+    num_stages: 3
+    init_voxel_size: 0.05
+    kernel_size: 15
+    base_radius: 2.5
+    base_sigma: 2.0
+    group_norm: 32
+    input_dim: 1
+    init_dim: 64
+    output_dim: 256
+    pre_trained: True
 
 
 

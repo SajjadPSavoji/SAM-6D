@@ -7,6 +7,7 @@ from fine_point_matching import FinePointMatching
 from transformer import GeometricStructureEmbedding
 from model_utils import sample_pts_feats
 from vis_utils import features_to_colors, visualize_points_3d, visualize_two_sets_3d
+from geo_extraction import GeoEncoder
 
 
 class Net(nn.Module):
@@ -20,6 +21,8 @@ class Net(nn.Module):
         self.geo_embedding = GeometricStructureEmbedding(cfg.geo_embedding)
         self.coarse_point_matching = CoarsePointMatching(cfg.coarse_point_matching)
         self.fine_point_matching = FinePointMatching(cfg.fine_point_matching)
+        self.geo_feature_extraction = GeoEncoder(cfg.GeoEncoder)
+        breakpoint()
 
     def forward(self, end_points):
         dense_pm, dense_fm, dense_po, dense_fo, center, radius = self.feature_extraction(end_points)

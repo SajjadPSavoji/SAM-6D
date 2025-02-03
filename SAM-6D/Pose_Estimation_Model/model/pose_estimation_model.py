@@ -23,14 +23,6 @@ class Net(nn.Module):
 
     def forward(self, end_points):
         dense_pm, dense_fm, dense_po, dense_fo, radius = self.feature_extraction(end_points)
-        gt_r = end_points['rotation_label']
-        gt_t = end_points['translation_label'] / (radius.reshape(-1, 1)+1e-6)
-        gt_pts_pm = (dense_pm-gt_t.unsqueeze(1))@gt_r
-        gt_pts_po = (dense_po-gt_t.unsqueeze(1))@gt_r
-        # gt_pts_pm = dense_pm
-        visualize_two_sets_3d(gt_pts_po.squeeze(0).detach().cpu(), gt_pts_pm.squeeze(0).detach().cpu(), 
-        "FoundationPoseExample", s=1)
-        breakpoint()
 
         # pre-compute geometric embeddings for geometric transformer
         bg_point = torch.ones(dense_pm.size(0),1,3).float().to(dense_pm.device) * 100

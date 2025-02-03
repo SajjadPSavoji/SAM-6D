@@ -72,8 +72,8 @@ train_dataset:
   single_view_pr: 0.5
 
 train_dataloader:
-  bs            : 100
-  num_workers   : 100
+  bs            : 1
+  num_workers   : 1
   shuffle       : True
   drop_last     : True
   pin_memory    : False

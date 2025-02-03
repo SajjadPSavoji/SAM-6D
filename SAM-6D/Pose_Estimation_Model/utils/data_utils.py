@@ -3,6 +3,7 @@ import numpy as np
 import json
 import imageio
 import cv2
+import json
 
 from PIL import Image
 
@@ -12,6 +13,8 @@ def load_im(path):
     :param path: Path to the image file to load.
     :return: ndarray with the loaded image.
     """
+    if not os.path.isfile(path):
+        return None
     im = imageio.imread(path)
     return im
 
@@ -212,5 +215,170 @@ def get_bop_image(inst, bbox, img_size, mask=None):
     rgb = cv2.resize(rgb, (img_size, img_size), interpolation=cv2.INTER_LINEAR)
     return rgb
 
+# Utils to load FoundationPose dataset
+def process_foundationpose_cam(camera_params):
+    glcam_in_cvcam = np.array([[1,0,0,0],
+                          [0,-1,0,0],
+                          [0,0,-1,0],
+                          [0,0,0,1]]).astype(float)
+    W, H = camera_params["renderProductResolution"]
+    world_in_glcam = np.array(camera_params['cameraViewTransform']).reshape(4,4).T
+    cam_in_world = np.linalg.inv(world_in_glcam)@glcam_in_cvcam
+    world_in_cam = np.linalg.inv(cam_in_world)
+    focal_length = camera_params["cameraFocalLength"]
+    horiz_aperture = camera_params["cameraAperture"][0]
+    vert_aperture = H / W * horiz_aperture
+    focal_y = H * focal_length / vert_aperture
+    focal_x = W * focal_length / horiz_aperture
+    center_y = H * 0.5
+    center_x = W * 0.5
+
+    fx, fy, cx, cy = focal_x, focal_y, center_x, center_y
+    K = np.eye(3)
+    K[0,0] = fx
+    K[1,1] = fy
+    K[0,2] = cx
+    K[1,2] = cy
+    return K
+
+def load_json(path):
+    if not os.path.isfile(path):
+        return None
+    with open(path, 'r') as file:
+        data = json.load(file)
+    return data
+
+def load_npy(path):
+    if not os.path.isfile(path):
+        return None
+    return np.load(path)
+
+def convert_det_ids_to_seg_ids(det_ids, det_sem_map, seg_sem_map):
+    """
+    Converts a list of detection mapping IDs to segmentation mapping IDs by matching the class strings.
+
+    Parameters:
+        det_ids (iterable): An iterable of ids (strings or integers) from det_sem_map.
+        det_sem_map (dict): Dictionary mapping ids to a dict with a "class" key.
+        seg_sem_map (dict): Dictionary mapping ids to a dict with a "class" key.
+
+    Returns:
+        list: A list of segmentation mapping ids corresponding to the given detection ids.
+    """
+    # Build a lookup: from class name (value) to segmentation id (key)
+    background = ["BACKGROUND", "UNLABELLED", "world_collision_box_collision_box_floor"]
+    class_to_seg_id = {entry["class"]: seg_id for seg_id, entry in seg_sem_map.items()}
+    
+    seg_ids = []
+    for det_id in det_ids:
+        det_key = str(det_id)
+        det_class = det_sem_map[det_key]["class"]
+
+        if (det_class in class_to_seg_id) and (det_class not in background):
+            seg_ids.append(int(class_to_seg_id[det_class]))
+    return seg_ids
+
+def load_data_FoundationPose(data_dir, path_head, min_visib_frac, min_visib_px):
+    path_head = os.path.join(data_dir, path_head)
+    states = load_json(os.path.join(path_head, "../states.json"))
+    render_prod_replic_path = os.path.join(path_head, "RenderProduct_Replicator")
+
+    rgb = load_im(os.path.join(render_prod_replic_path, "rgb/rgb_000000.png"))
+    seg = load_im(os.path.join(render_prod_replic_path, "instance_segmentation/instance_segmentation_000000.png"))
+    seg_ins_map = load_json(os.path.join(render_prod_replic_path, "instance_segmentation/instance_segmentation_mapping_000000.json"))
+    seg_sem_map = load_json(os.path.join(render_prod_replic_path, "instance_segmentation/instance_segmentation_semantics_mapping_000000.json"))
+    dis = load_npy(os.path.join(render_prod_replic_path, "distance_to_image_plane/distance_to_image_plane_000000.npy"))
+    cam = load_json(os.path.join(render_prod_replic_path, "camera_params/camera_params_000000.json"))
+    K = process_foundationpose_cam(cam)
+    det_loose = load_npy(os.path.join(render_prod_replic_path, "bounding_box_2d_loose/bounding_box_2d_loose_000000.npy"))
+    det_sem_map = load_json(os.path.join(render_prod_replic_path, "bounding_box_2d_loose/bounding_box_2d_loose_labels_000000.json"))
+
+    render_prod_replic_path_1 = os.path.join(path_head, "RenderProduct_Replicator_01")
+    rgb_1 = load_im(os.path.join(render_prod_replic_path_1, "rgb/rgb_000000.png"))
+    seg_1 = load_im(os.path.join(render_prod_replic_path_1, "instance_segmentation/instance_segmentation_000000.png"))
+    seg_ins_map_1 = load_json(os.path.join(render_prod_replic_path_1, "instance_segmentation/instance_segmentation_mapping_000000.json"))
+    seg_sem_map_1 = load_json(os.path.join(render_prod_replic_path_1, "instance_segmentation/instance_segmentation_semantics_mapping_000000.json"))
+    dis_1 = load_npy(os.path.join(render_prod_replic_path_1, "distance_to_image_plane/distance_to_image_plane_000000.npy"))
+    cam_1 = load_json(os.path.join(render_prod_replic_path_1, "camera_params/camera_params_000000.json"))
+    K_1 = process_foundationpose_cam(cam_1)
+    det_loose_1 = load_npy(os.path.join(render_prod_replic_path_1, "bounding_box_2d_loose/bounding_box_2d_loose_000000.npy"))
+    det_sem_map_1 = load_json(os.path.join(render_prod_replic_path_1, "bounding_box_2d_loose/bounding_box_2d_loose_labels_000000.json"))
+
+    # chaeck all files
+    if any(x is None for x in [rgb, seg, seg_ins_map, seg_sem_map, dis, cam, K, det_loose, det_sem_map,
+                             rgb_1, seg_1, seg_ins_map_1, seg_sem_map_1, dis_1, cam_1, K_1, det_loose_1, det_sem_map_1]):
+        return None
+    
+    occlusion_ratios = det_loose['occlusionRatio']
+    visib_frac = 1.0 - occlusion_ratios
+    mask = visib_frac > min_visib_frac
+    selected_det_ids = det_loose['semanticId'][mask]
+    selected_ids = convert_det_ids_to_seg_ids(selected_det_ids, det_sem_map, seg_sem_map)
+    if len(selected_ids) == 0: return None
+    unique_ids, counts = np.unique(seg, return_counts=True)
+    count_dict = dict(zip(unique_ids, counts))
+    final_ids = [
+        oid for oid in selected_ids
+        if count_dict.get(oid, 0) >= min_visib_px
+    ]
+
+    occlusion_ratios_1 = det_loose_1['occlusionRatio']
+    visib_frac_1 = 1.0 - occlusion_ratios_1
+    mask_1 = visib_frac_1 > min_visib_frac
+    selected_det_ids_1 = det_loose_1['semanticId'][mask_1]
+    selected_ids_1 = convert_det_ids_to_seg_ids(selected_det_ids_1, det_sem_map_1, seg_sem_map_1)
+    if len(selected_ids_1) == 0: return None 
+    unique_ids_1, counts_1 = np.unique(seg_1, return_counts=True)
+    count_dict_1 = dict(zip(unique_ids_1, counts_1))
+    final_ids_1 = [
+        oid for oid in selected_ids_1
+        if count_dict_1.get(oid, 0) >= min_visib_px
+    ]
+
+    valid_ids = np.intersect1d(final_ids_1, final_ids)
+    num_valids = len(valid_ids)
+    if num_valids == 0:
+        return None
+    obj_id = valid_ids[np.random.randint(0, num_valids)]
+    obj_key = "_".join(seg_ins_map[str(obj_id)].split("/")[3].split("_")[1:])
 
 
+    target_R = np.array(states["objects"][obj_key]["rotation_matrix"]).reshape(3,3).astype(np.float32)
+    target_t = np.array(states["objects"][obj_key]["translation"]).reshape(3).astype(np.float32)
+
+    mask   = (seg   == obj_id).astype(np.uint8)
+    mask_1 = (seg_1 == obj_id).astype(np.uint8)
+
+    depth = np.where(np.isinf(dis), 0, dis.astype(np.float32))
+    depth_1 = np.where(np.isinf(dis_1), 0, dis_1.astype(np.float32))
+
+    rgb   = rgb[:, :, :3].astype(np.uint8)
+    rgb_1 = rgb_1[:, :, :3].astype(np.uint8)
+
+    scene_data = {
+        "rgb":rgb,
+        "mask":mask,
+        "depth":depth,
+        "K":K,
+        "rgb_1":rgb_1,
+        "mask_1":mask_1,
+        "depth_1":depth_1,
+        "K_1":K_1,
+        "target_R":target_R,
+        "target_t":target_t,
+        "obj_id":obj_id,
+        "obj_key":obj_key
+    }
+
+    # randomly swap variables. inthe dataloader we will assume 0 is refrence
+    if np.random.rand() < 0.5:
+        keys_to_swap = ['rgb', 'mask', 'depth', 'K']
+        for key in keys_to_swap:
+            key_1 = f"{key}_1"
+            if key in scene_data and key_1 in scene_data:
+                # Swap the two views
+                scene_data[key], scene_data[key_1] = scene_data[key_1], scene_data[key]
+            else:
+                raise KeyError(f"Missing keys: {key} or {key_1} not found in scene_data.")
+
+    return scene_data

@@ -27,6 +27,7 @@ from data_utils import (
     get_resize_rgb_choose,
     get_random_rotation,
     get_bbox,
+    load_data_FoundationPose,
 )
 
 from augmentation_utils import (
@@ -54,45 +55,6 @@ from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 import os
 
-def visualize_points_3d(tem_pts, points_name, num_frames=360, color='blue'):
-    output_video_path=f'{points_name}_visualization.mp4'
-    fig = plt.figure(figsize=(10, 8))
-    ax = fig.add_subplot(111, projection='3d')
-
-    # Scatter plot of points
-    ax.scatter(tem_pts[:, 0], tem_pts[:, 1], tem_pts[:, 2], c=color, s=1)
-
-    # Hide grid and axes
-    ax.grid(False)
-    ax.axis('off')
-
-    # Configure axes limits for better visibility
-    max_extent = np.max(np.abs(tem_pts))
-    ax.set_xlim([-max_extent, max_extent])
-    ax.set_ylim([-max_extent, max_extent])
-    ax.set_zlim([-max_extent, max_extent])
-
-    # Rotate and save each frame
-    from matplotlib.animation import FuncAnimation
-
-    def update(frame):
-        ax.view_init(elev=30, azim=frame)
-        return fig,
-
-    anim = FuncAnimation(fig, update, frames=num_frames, interval=100)
-
-    # Save as a video
-    anim.save(output_video_path, fps=30, writer='ffmpeg')
-    print(f"Visualization saved to {output_video_path}")
-    # #################################################
-    # This is how to use the vis code
-    # target_pts = (pts - target_t[None, :]) @ target_R
-    # print(len(target_pts), len(tem_pts))
-    # visualize_points_3d(tem_pts, "templates",color="black")
-    # visualize_points_3d(target_pts, "observation", color="blue")
-    # exit()
-    # ##################################################
-
 class Dataset():
     def __init__(self, cfg, num_img_per_epoch=-1):
         self.cfg = cfg
@@ -115,25 +77,45 @@ class Dataset():
 
         self.data_paths = [
             os.path.join('MegaPose-GSO', 'train_pbr_web'),
-            os.path.join('MegaPose-ShapeNetCore', 'train_pbr_web')
+            os.path.join('MegaPose-ShapeNetCore', 'train_pbr_web'),
+            os.path.join('FoundationPose-GSO', 'train_pbr'),
+            os.path.join('FoundationPose-Objaverse', 'train_pbr')
         ]
         self.model_paths = [
             os.path.join(self.data_dir, 'MegaPose-GSO', 'Google_Scanned_Objects'),
             os.path.join(self.data_dir, 'MegaPose-ShapeNetCore', 'shapenetcorev2'),
+            os.path.join(self.data_dir, 'FoundationPose-GSO', 'Google_Scanned_Objects'),
+            os.path.join(self.data_dir, 'FoundationPose-Objaverse', 'objaverse')
         ]
         self.templates_paths = [
             os.path.join(self.data_dir, 'MegaPose-GSO', 'templates'),
             os.path.join(self.data_dir, 'MegaPose-ShapeNetCore', 'templates'),
+            os.path.join(self.data_dir, 'FoundationPose-GSO', 'templates'),
+            os.path.join(self.data_dir, 'FoundationPose-Objaverse', 'templates')
         ]
-
+        
         self.dataset_paths = []
-        for f in self.data_paths:
-            with open(os.path.join(self.data_dir, f, 'key_to_shard.json')) as fr:
-                key_shards = json.load(fr)
+        # # get pathes to images for MegaPose train data
+        # for f in self.data_paths[:2]:
+        #     with open(os.path.join(self.data_dir, f, 'key_to_shard.json')) as fr:
+        #         key_shards = json.load(fr)
 
-                for k in key_shards.keys():
-                    path_name = os.path.join(f, "shard-" + f"{key_shards[k]:06d}", k)
-                    self.dataset_paths.append(path_name)
+        #         for k in key_shards.keys():
+        #             path_name = os.path.join(f, "shard-" + f"{key_shards[k]:06d}", k)
+        #             self.dataset_paths.append(path_name)
+
+        
+        # get pathes to images for FoundationPose train data
+        for f in self.data_paths[2:4]:
+            train_pbr_path = os.path.join(self.data_dir, f)
+            for shard in os.listdir(train_pbr_path):
+                shard_path = os.path.join(train_pbr_path, shard)
+                for scene in os.listdir(shard_path):
+                    scene_path = os.path.join(shard_path, scene)
+                    for subscene in os.listdir(scene_path):
+                        if os.path.isdir(os.path.join(scene_path, subscene)):
+                            path_name = os.path.join(f, shard, scene, subscene)
+                            self.dataset_paths.append(path_name)
 
         self.length = len(self.dataset_paths)
         print('Total {} images .....'.format(self.length))
@@ -166,39 +148,12 @@ class Dataset():
         self.color_augmentor = eval(aug_code)
         self.depth_augmentor = DepthAugmentation(p=0.8,
             transform=[
-            # level 0 depth augmentation
-            DepthAugmentation(p=0.3, transform=DepthBlurTransform()),
-            DepthAugmentation(p=0.3, transform=DepthEllipseDropoutTransform()),
-            DepthAugmentation(p=0.3, transform=DepthGaussianNoiseTransform()),
-            DepthAugmentation(p=0.3, transform=DepthMissingTransform()),
-            # level 1 depth augmentation
-            # DepthAugmentation(DepthBlurTransform(), p=0.3),
-            # DepthAugmentation(
-            #     DepthCorrelatedGaussianNoiseTransform(
-            #         gp_rescale_factor_min=15.0, gp_rescale_factor_max=40.0, std_dev=0.01
-            #     ),
-            #     p=0.3,
-            # ),
-            # DepthAugmentation(
-            #     DepthEllipseDropoutTransform(
-            #         ellipse_dropout_mean=175.0,
-            #         ellipse_gamma_shape=5.0,
-            #         ellipse_gamma_scale=2.0,
-            #     ),
-            #     p=0.5,
-            # ),
-            # DepthAugmentation(
-            #     DepthEllipseNoiseTransform(
-            #         ellipse_dropout_mean=175.0,
-            #         ellipse_gamma_shape=5.0,
-            #         ellipse_gamma_scale=2.0,
-            #         std_dev=0.01,
-            #     ),
-            #     p=0.5,
-            # ),
-            # DepthAugmentation(DepthGaussianNoiseTransform(std_dev=0.01), p=0.1),
-            # DepthAugmentation(DepthMissingTransform(max_missing_fraction=0.9), p=0.3),
-        ])
+                DepthAugmentation(p=0.3, transform=DepthBlurTransform()),
+                DepthAugmentation(p=0.3, transform=DepthEllipseDropoutTransform()),
+                DepthAugmentation(p=0.3, transform=DepthGaussianNoiseTransform()),
+                DepthAugmentation(p=0.3, transform=DepthMissingTransform()),
+            ]
+        )
         self.mask_augmentor = MaskAugmentation(p=0.8,
             transform=[
                 MaskAugmentation(p=0.3, transform=MaskBBoxFillTransform()),
@@ -249,7 +204,115 @@ class Dataset():
     def read_data(self, index):
         # index = 100
         path_head = self.dataset_paths[index]
-        dataset_type = path_head.split('/')[0][9:]
+        dataset_auth = path_head.split('/')[0].split('-')[0]
+
+        if dataset_auth == "MegaPose":
+            return self.read_data_MegaPose(index)
+        elif dataset_auth == "FoundationPose":
+            return self.read_data_FoundationPose(index)
+        else:
+            raise "data path should be eithder from MegaPose or FoundationPose"
+
+    def augment_data_FoundationPose(self, K_0, mask_0, depth_0, rgb_0):
+         # mask
+        if np.sum(mask_0) == 0:
+            return None, None, None
+        if self.augment_mask:
+            mask_0 = mask_0.astype(np.float32)
+            mask_0 = self.mask_augmentor(mask_0)
+            if np.sum(mask_0>0) == 0:
+                return None, None, None
+        bbox_0 = get_bbox(mask_0>0)
+        y1_0,y2_0,x1_0,x2_0 = bbox_0
+        mask_0 = mask_0[y1_0:y2_0, x1_0:x2_0]
+        choose_0 = mask_0.astype(np.float32).flatten().nonzero()[0]
+        # depth
+        if self.augment_depth:
+            depth_0 = self.depth_augmentor(depth_0)
+        pts_0 = get_point_cloud_from_depth(depth_0, K_0, [y1_0, y2_0, x1_0, x2_0])
+        pts_0 = pts_0.reshape(-1, 3)[choose_0, :]
+        if len(choose_0) < self.min_pts_count:
+            return None, None, None
+        # sample points
+        if len(choose_0) <= self.n_sample_observed_point:
+            choose_idx_0 = np.random.choice(np.arange(len(choose_0)), self.n_sample_observed_point)
+        else:
+            choose_idx_0 = np.random.choice(np.arange(len(choose_0)), self.n_sample_observed_point, replace=False)
+        choose_0 = choose_0[choose_idx_0]
+        pts_0 = pts_0[choose_idx_0]
+
+        # rgb
+        rgb_0 = rgb_0[..., ::-1][y1_0:y2_0, x1_0:x2_0, :]
+        if np.random.rand() < 0.8:
+            rgb_0 = self.color_augmentor.augment_image(rgb_0)
+        if self.rgb_mask_flag:
+            rgb_0 = rgb_0 * (mask_0[:,:,None]>0).astype(np.uint8)
+        rgb_0 = cv2.resize(rgb_0, (self.img_size, self.img_size), interpolation=cv2.INTER_LINEAR)
+        rgb_0 = self.transform(np.array(rgb_0))
+        rgb_choose_0 = get_resize_rgb_choose(choose_0, [y1_0, y2_0, x1_0, x2_0], self.img_size)
+
+        return pts_0, rgb_0, rgb_choose_0
+
+    def read_data_FoundationPose(self, index):
+        path_head = self.dataset_paths[index]
+        dataset_auth = path_head.split('/')[0].split('-')[0]
+        dataset_type = path_head.split('/')[0].split('-')[1]
+        data = load_data_FoundationPose(self.data_dir, path_head, self.min_visib_frac, self.min_visib_px)
+        if data is None:
+            return None
+        # gt rot and translation 
+        target_R = data["target_R"]
+        target_t = data["target_t"]
+        # get ref view data
+        K_0 = data["K"]
+        mask_0 = data["mask"]
+        depth_0 = data["depth"]
+        rgb_0 = data["rgb"]
+        pts_0, rgb_0, rgb_choose_0 = self.augment_data_FoundationPose(K_0, mask_0, depth_0, rgb_0)
+        if pts_0 is None:
+            return None
+        pts_0 = (pts_0 - target_t[None, :]) @ target_R
+    
+        # get second view data
+        K_1 = data["K_1"]
+        mask_1 = data["mask_1"]
+        depth_1 = data["depth_1"]
+        rgb_1 = data["rgb_1"]
+        pts_1, rgb_1, rgb_choose_1 = self.augment_data_FoundationPose(K_1, mask_1, depth_1, rgb_1)
+        if pts_1 is None:
+            return None
+        # rotation aug
+        rand_R = get_random_rotation()
+        pts_0 = pts_0 @ rand_R
+        target_R = target_R @ rand_R
+
+        # translation aug
+        add_t = np.random.uniform(-self.shift_range, self.shift_range, (1, 3))
+        target_t = target_t + add_t[0]
+        add_t = add_t + 0.001*np.random.randn(pts_1.shape[0], 3)
+        pts_1 = np.add(pts_1, add_t)
+
+
+        ret_dict = {
+            'pts': torch.FloatTensor(pts_1),
+            'rgb': torch.FloatTensor(rgb_1),
+            'rgb_choose': torch.IntTensor(rgb_choose_1).long(),
+            'tem1_pts': torch.FloatTensor(pts_0),
+            'tem1_rgb': torch.FloatTensor(rgb_0),
+            'tem1_choose': torch.IntTensor(rgb_choose_0).long(),
+            'tem2_pts': torch.FloatTensor(pts_0),
+            'tem2_rgb': torch.FloatTensor(rgb_0),
+            'tem2_choose': torch.IntTensor(rgb_choose_0).long(),
+            'translation_label': torch.FloatTensor(target_t),
+            'rotation_label': torch.FloatTensor(target_R),
+            'K': torch.FloatTensor(K_1),
+        }
+        return ret_dict
+
+    def read_data_MegaPose(self, index):
+        path_head = self.dataset_paths[index]
+        dataset_auth = path_head.split('/')[0].split('-')[0]
+        dataset_type = path_head.split('/')[0].split('-')[1]
         if not self._check_path(os.path.join(self.data_dir, path_head)):
             return None
 
@@ -317,13 +380,13 @@ class Dataset():
         pts = get_point_cloud_from_depth(depth, K, [y1, y2, x1, x2])
         pts = pts.reshape(-1, 3)[choose, :]
 
-        target_pts = (pts - target_t[None, :]) @ target_R
-        tem_pts = np.concatenate([tem1_pts, tem2_pts], axis=0)
-        radius = np.max(np.linalg.norm(tem_pts, axis=1))
-        flag = np.linalg.norm(target_pts, axis=1) < radius * 1.2 # for outlier removal
+        # target_pts = (pts - target_t[None, :]) @ target_R
+        # tem_pts = np.concatenate([tem1_pts, tem2_pts], axis=0)
+        # radius = np.max(np.linalg.norm(tem_pts, axis=1))
+        # flag = np.linalg.norm(target_pts, axis=1) < radius * 1.2 # for outlier removal
 
-        pts = pts[flag]
-        choose = choose[flag]
+        # pts = pts[flag]
+        # choose = choose[flag]
 
         if len(choose) < self.min_pts_count:
             return None

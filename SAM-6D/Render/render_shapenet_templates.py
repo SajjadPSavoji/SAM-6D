@@ -166,7 +166,13 @@ def get_cam_locs(cnos_cam_fpath):
     return aligned_pos
 
 bproc.init()
-location = get_cam_locs(cnos_cam_fpath)
+location = np.array([[1.000000,1.000000,1.000000],
+                    [-1.000000,-1.000000,-1.000000],
+                    [1.224745,-1.224745,0.000000],
+                    [-1.224745,1.224745,0.000000],
+                    [0.707107,0.707107,-1.414214],
+                    [-0.707107,-0.707107,1.414214]
+                    ])
 
 # count total objects
 total_objects = 0
@@ -184,7 +190,7 @@ for synset_id in sorted(os.listdir(shapenet_orig_path)):
         continue
     for model_idx, source_id in enumerate(sorted(os.listdir(synset_fpath))):
         cur_iter += 1
-        if cur_iter < 27839: continue
+        if cur_iter < 0: continue
         custom_progress_bar(cur_iter, total_objects, start_time)
         print('---------------------------'+str(synset_id)+'::::'+str(source_id)+'-------------------------------------')
         save_synset_folder = os.path.join(output_dir, synset_id)
@@ -218,7 +224,7 @@ for synset_id in sorted(os.listdir(shapenet_orig_path)):
         obj.set_cp("category_id", model_idx)
 
         # set up lights around the object
-        light_energy = 60
+        light_energy = 420
         light_scale = 3
         lights = [bproc.types.Light() for _ in location]
 

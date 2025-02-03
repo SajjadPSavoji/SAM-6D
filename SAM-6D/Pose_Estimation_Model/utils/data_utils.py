@@ -239,7 +239,51 @@ def process_foundationpose_cam(camera_params):
     K[1,1] = fy
     K[0,2] = cx
     K[1,2] = cy
-    return K
+
+    camera = {"K":K,
+              "world_in_cam":world_in_cam,
+              "cam_in_world":cam_in_world}
+    return camera
+
+def transform_point_cloud(points, T):
+    # Number of points
+    N = points.shape[0]
+    
+    # Convert to homogeneous coordinates by appending a column of ones
+    ones = np.ones((N, 1))
+    points_homogeneous = np.hstack([points, ones])  # shape: (N, 4)
+    
+    # Apply the transformation matrix.
+    # Note: We multiply from the left, so we need to transpose if using row vectors.
+    transformed_homogeneous = (T @ points_homogeneous.T).T  # shape: (N, 4)
+    
+    # Convert back to 3D by dividing by the homogeneous coordinate, if necessary.
+    # For an affine transformation, the 4th coordinate should be 1.
+    # The following handles both cases.
+    transformed_points = transformed_homogeneous[:, :3] / transformed_homogeneous[:, 3][:, np.newaxis]
+    
+    return transformed_points
+
+def combine_transformations(T, target_R, target_t):
+    # 1. Compute the translation part v = f(0)
+    origin = np.zeros((1, 3))
+    v = transform_point_cloud(origin, T)[0]
+    
+    # 2. Compute the linear part M by probing the action on basis vectors.
+    M = np.zeros((3, 3))
+    for i in range(3):
+        # Create the i-th standard basis vector (as a 1x3 row vector)
+        e = np.zeros((1, 3))
+        e[0, i] = 1.0
+        # The effect of T on e: f(e) = e*M + v, so row i of M is:
+        M[i, :] = transform_point_cloud(e, T)[0] - v
+    
+    # 3. The combined rotation is:
+    new_target_R = M @ target_R
+    # 4. The combined translation is:
+    new_target_t = (target_t - v) @ np.linalg.inv(M)
+    
+    return new_target_R, new_target_t
 
 def load_json(path):
     if not os.path.isfile(path):
@@ -254,17 +298,6 @@ def load_npy(path):
     return np.load(path)
 
 def convert_det_ids_to_seg_ids(det_ids, det_sem_map, seg_sem_map):
-    """
-    Converts a list of detection mapping IDs to segmentation mapping IDs by matching the class strings.
-
-    Parameters:
-        det_ids (iterable): An iterable of ids (strings or integers) from det_sem_map.
-        det_sem_map (dict): Dictionary mapping ids to a dict with a "class" key.
-        seg_sem_map (dict): Dictionary mapping ids to a dict with a "class" key.
-
-    Returns:
-        list: A list of segmentation mapping ids corresponding to the given detection ids.
-    """
     # Build a lookup: from class name (value) to segmentation id (key)
     background = ["BACKGROUND", "UNLABELLED", "world_collision_box_collision_box_floor"]
     class_to_seg_id = {entry["class"]: seg_id for seg_id, entry in seg_sem_map.items()}
@@ -282,6 +315,9 @@ def load_data_FoundationPose(data_dir, path_head, min_visib_frac, min_visib_px):
     path_head = os.path.join(data_dir, path_head)
     states = load_json(os.path.join(path_head, "../states.json"))
     render_prod_replic_path = os.path.join(path_head, "RenderProduct_Replicator")
+    render_prod_replic_path_1 = os.path.join(path_head, "RenderProduct_Replicator_01")
+    if np.random.rand() < 0.5:
+        render_prod_replic_path, render_prod_replic_path_1 = render_prod_replic_path_1, render_prod_replic_path
 
     rgb = load_im(os.path.join(render_prod_replic_path, "rgb/rgb_000000.png"))
     seg = load_im(os.path.join(render_prod_replic_path, "instance_segmentation/instance_segmentation_000000.png"))
@@ -289,25 +325,25 @@ def load_data_FoundationPose(data_dir, path_head, min_visib_frac, min_visib_px):
     seg_sem_map = load_json(os.path.join(render_prod_replic_path, "instance_segmentation/instance_segmentation_semantics_mapping_000000.json"))
     dis = load_npy(os.path.join(render_prod_replic_path, "distance_to_image_plane/distance_to_image_plane_000000.npy"))
     cam = load_json(os.path.join(render_prod_replic_path, "camera_params/camera_params_000000.json"))
-    K = process_foundationpose_cam(cam)
     det_loose = load_npy(os.path.join(render_prod_replic_path, "bounding_box_2d_loose/bounding_box_2d_loose_000000.npy"))
     det_sem_map = load_json(os.path.join(render_prod_replic_path, "bounding_box_2d_loose/bounding_box_2d_loose_labels_000000.json"))
 
-    render_prod_replic_path_1 = os.path.join(path_head, "RenderProduct_Replicator_01")
     rgb_1 = load_im(os.path.join(render_prod_replic_path_1, "rgb/rgb_000000.png"))
     seg_1 = load_im(os.path.join(render_prod_replic_path_1, "instance_segmentation/instance_segmentation_000000.png"))
     seg_ins_map_1 = load_json(os.path.join(render_prod_replic_path_1, "instance_segmentation/instance_segmentation_mapping_000000.json"))
     seg_sem_map_1 = load_json(os.path.join(render_prod_replic_path_1, "instance_segmentation/instance_segmentation_semantics_mapping_000000.json"))
     dis_1 = load_npy(os.path.join(render_prod_replic_path_1, "distance_to_image_plane/distance_to_image_plane_000000.npy"))
     cam_1 = load_json(os.path.join(render_prod_replic_path_1, "camera_params/camera_params_000000.json"))
-    K_1 = process_foundationpose_cam(cam_1)
     det_loose_1 = load_npy(os.path.join(render_prod_replic_path_1, "bounding_box_2d_loose/bounding_box_2d_loose_000000.npy"))
     det_sem_map_1 = load_json(os.path.join(render_prod_replic_path_1, "bounding_box_2d_loose/bounding_box_2d_loose_labels_000000.json"))
 
     # chaeck all files
-    if any(x is None for x in [rgb, seg, seg_ins_map, seg_sem_map, dis, cam, K, det_loose, det_sem_map,
-                             rgb_1, seg_1, seg_ins_map_1, seg_sem_map_1, dis_1, cam_1, K_1, det_loose_1, det_sem_map_1]):
+    if any(x is None for x in [rgb, seg, seg_ins_map, seg_sem_map, dis, cam, det_loose, det_sem_map,
+                             rgb_1, seg_1, seg_ins_map_1, seg_sem_map_1, dis_1, cam_1, det_loose_1, det_sem_map_1]):
         return None
+
+    cam_param = process_foundationpose_cam(cam)
+    cam_param_1 = process_foundationpose_cam(cam_1)
     
     occlusion_ratios = det_loose['occlusionRatio']
     visib_frac = 1.0 - occlusion_ratios
@@ -342,7 +378,6 @@ def load_data_FoundationPose(data_dir, path_head, min_visib_frac, min_visib_px):
     obj_id = valid_ids[np.random.randint(0, num_valids)]
     obj_key = "_".join(seg_ins_map[str(obj_id)].split("/")[3].split("_")[1:])
 
-
     target_R = np.array(states["objects"][obj_key]["rotation_matrix"]).reshape(3,3).astype(np.float32)
     target_t = np.array(states["objects"][obj_key]["translation"]).reshape(3).astype(np.float32)
 
@@ -352,33 +387,22 @@ def load_data_FoundationPose(data_dir, path_head, min_visib_frac, min_visib_px):
     depth = np.where(np.isinf(dis), 0, dis.astype(np.float32))
     depth_1 = np.where(np.isinf(dis_1), 0, dis_1.astype(np.float32))
 
-    rgb   = rgb[:, :, :3].astype(np.uint8)
-    rgb_1 = rgb_1[:, :, :3].astype(np.uint8)
+    rgb   = rgb[..., :3].astype(np.uint8)
+    rgb_1 = rgb_1[..., :3].astype(np.uint8)
 
     scene_data = {
         "rgb":rgb,
         "mask":mask,
         "depth":depth,
-        "K":K,
+        "cam_param":cam_param,
         "rgb_1":rgb_1,
         "mask_1":mask_1,
         "depth_1":depth_1,
-        "K_1":K_1,
+        "cam_param_1":cam_param_1,
         "target_R":target_R,
         "target_t":target_t,
         "obj_id":obj_id,
         "obj_key":obj_key
     }
-
-    # randomly swap variables. inthe dataloader we will assume 0 is refrence
-    if np.random.rand() < 0.5:
-        keys_to_swap = ['rgb', 'mask', 'depth', 'K']
-        for key in keys_to_swap:
-            key_1 = f"{key}_1"
-            if key in scene_data and key_1 in scene_data:
-                # Swap the two views
-                scene_data[key], scene_data[key_1] = scene_data[key_1], scene_data[key]
-            else:
-                raise KeyError(f"Missing keys: {key} or {key_1} not found in scene_data.")
 
     return scene_data

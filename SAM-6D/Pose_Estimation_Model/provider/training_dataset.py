@@ -28,6 +28,8 @@ from data_utils import (
     get_random_rotation,
     get_bbox,
     load_data_FoundationPose,
+    transform_point_cloud,
+    combine_transformations,
 )
 
 from augmentation_utils import (
@@ -95,14 +97,14 @@ class Dataset():
         ]
         
         self.dataset_paths = []
-        # # get pathes to images for MegaPose train data
-        # for f in self.data_paths[:2]:
-        #     with open(os.path.join(self.data_dir, f, 'key_to_shard.json')) as fr:
-        #         key_shards = json.load(fr)
+        # get pathes to images for MegaPose train data
+        for f in self.data_paths[:2]:
+            with open(os.path.join(self.data_dir, f, 'key_to_shard.json')) as fr:
+                key_shards = json.load(fr)
 
-        #         for k in key_shards.keys():
-        #             path_name = os.path.join(f, "shard-" + f"{key_shards[k]:06d}", k)
-        #             self.dataset_paths.append(path_name)
+                for k in key_shards.keys():
+                    path_name = os.path.join(f, "shard-" + f"{key_shards[k]:06d}", k)
+                    self.dataset_paths.append(path_name)
 
         
         # get pathes to images for FoundationPose train data
@@ -213,31 +215,41 @@ class Dataset():
         else:
             raise "data path should be eithder from MegaPose or FoundationPose"
 
-    def augment_data_FoundationPose(self, K_0, mask_0, depth_0, rgb_0):
+    def augment_data_FoundationPose(self, cam_param_0, mask_0, depth_0, rgb_0, n_point, mask_augmentor):
          # mask
         if np.sum(mask_0) == 0:
             return None, None, None
         if self.augment_mask:
             mask_0 = mask_0.astype(np.float32)
-            mask_0 = self.mask_augmentor(mask_0)
+            mask_0 = mask_augmentor(mask_0)
             if np.sum(mask_0>0) == 0:
                 return None, None, None
         bbox_0 = get_bbox(mask_0>0)
         y1_0,y2_0,x1_0,x2_0 = bbox_0
         mask_0 = mask_0[y1_0:y2_0, x1_0:x2_0]
-        choose_0 = mask_0.astype(np.float32).flatten().nonzero()[0]
+
         # depth
         if self.augment_depth:
-            depth_0 = self.depth_augmentor(depth_0)
-        pts_0 = get_point_cloud_from_depth(depth_0, K_0, [y1_0, y2_0, x1_0, x2_0])
-        pts_0 = pts_0.reshape(-1, 3)[choose_0, :]
+            # my depth aug is in mm
+            depth_0 = self.depth_augmentor(depth_0 * 1000.0)/1000.0
+
+        # choose valid depth & seg
+        depth_0_cropped = depth_0[y1_0:y2_0, x1_0:x2_0]
+        valid_mask = (mask_0 > 0) & (depth_0_cropped > 0)
+        choose_0 = np.nonzero(valid_mask.flatten())[0]
         if len(choose_0) < self.min_pts_count:
             return None, None, None
+
+        # lift points
+        K_0 = cam_param_0["K"]
+        pts_0 = get_point_cloud_from_depth(depth_0, K_0, [y1_0, y2_0, x1_0, x2_0])
+        pts_0 = pts_0.reshape(-1, 3)[choose_0, :]
+
         # sample points
-        if len(choose_0) <= self.n_sample_observed_point:
-            choose_idx_0 = np.random.choice(np.arange(len(choose_0)), self.n_sample_observed_point)
+        if len(choose_0) <= n_point:
+            choose_idx_0 = np.random.choice(np.arange(len(choose_0)), n_point)
         else:
-            choose_idx_0 = np.random.choice(np.arange(len(choose_0)), self.n_sample_observed_point, replace=False)
+            choose_idx_0 = np.random.choice(np.arange(len(choose_0)), n_point, replace=False)
         choose_0 = choose_0[choose_idx_0]
         pts_0 = pts_0[choose_idx_0]
 
@@ -260,27 +272,38 @@ class Dataset():
         data = load_data_FoundationPose(self.data_dir, path_head, self.min_visib_frac, self.min_visib_px)
         if data is None:
             return None
+
         # gt rot and translation 
         target_R = data["target_R"]
         target_t = data["target_t"]
+
         # get ref view data
-        K_0 = data["K"]
+        cam_param_0 = data["cam_param"]
         mask_0 = data["mask"]
         depth_0 = data["depth"]
         rgb_0 = data["rgb"]
-        pts_0, rgb_0, rgb_choose_0 = self.augment_data_FoundationPose(K_0, mask_0, depth_0, rgb_0)
+        pts_0, rgb_0, rgb_choose_0 = self.augment_data_FoundationPose(
+            cam_param_0, mask_0, depth_0, rgb_0, self.n_sample_template_point, self.template_mask_augmentor)
         if pts_0 is None:
             return None
+
+        # move ref_0 to canonical pose
+        pts_0 = transform_point_cloud(pts_0, cam_param_0["cam_in_world"])
         pts_0 = (pts_0 - target_t[None, :]) @ target_R
     
         # get second view data
-        K_1 = data["K_1"]
+        cam_param_1 = data["cam_param_1"]
         mask_1 = data["mask_1"]
         depth_1 = data["depth_1"]
         rgb_1 = data["rgb_1"]
-        pts_1, rgb_1, rgb_choose_1 = self.augment_data_FoundationPose(K_1, mask_1, depth_1, rgb_1)
+        pts_1, rgb_1, rgb_choose_1 = self.augment_data_FoundationPose(
+            cam_param_1, mask_1, depth_1, rgb_1, self.n_sample_observed_point, self.mask_augmentor)
         if pts_1 is None:
             return None
+
+        # get rel R and t
+        target_R, target_t = combine_transformations(cam_param_1["cam_in_world"], target_R, target_t)
+
         # rotation aug
         rand_R = get_random_rotation()
         pts_0 = pts_0 @ rand_R
@@ -305,7 +328,7 @@ class Dataset():
             'tem2_choose': torch.IntTensor(rgb_choose_0).long(),
             'translation_label': torch.FloatTensor(target_t),
             'rotation_label': torch.FloatTensor(target_R),
-            'K': torch.FloatTensor(K_1),
+            'K': torch.FloatTensor(cam_param_1["K"]),
         }
         return ret_dict
 
@@ -343,7 +366,6 @@ class Dataset():
         camera = json.load(open(os.path.join(self.data_dir, path_head+'.camera.json'), 'rb'))
         K = np.array(camera['cam_K']).reshape(3,3)
 
-
         # template
         tem_idx0, tem_idx1 = 0,1 # change later if have more than two templates
         r = np.random.rand()
@@ -380,14 +402,7 @@ class Dataset():
         pts = get_point_cloud_from_depth(depth, K, [y1, y2, x1, x2])
         pts = pts.reshape(-1, 3)[choose, :]
 
-        # target_pts = (pts - target_t[None, :]) @ target_R
-        # tem_pts = np.concatenate([tem1_pts, tem2_pts], axis=0)
-        # radius = np.max(np.linalg.norm(tem_pts, axis=1))
-        # flag = np.linalg.norm(target_pts, axis=1) < radius * 1.2 # for outlier removal
-
-        # pts = pts[flag]
-        # choose = choose[flag]
-
+        # select and sample
         if len(choose) < self.min_pts_count:
             return None
 

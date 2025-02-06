@@ -311,12 +311,12 @@ def convert_det_ids_to_seg_ids(det_ids, det_sem_map, seg_sem_map):
             seg_ids.append(int(class_to_seg_id[det_class]))
     return seg_ids
 
-def load_data_FoundationPose(data_dir, path_head, min_visib_frac, min_visib_px):
+def load_data_FoundationPose(data_dir, path_head, min_visib_frac, min_visib_px, random_swap=True):
     path_head = os.path.join(data_dir, path_head)
     states = load_json(os.path.join(path_head, "../states.json"))
     render_prod_replic_path = os.path.join(path_head, "RenderProduct_Replicator")
     render_prod_replic_path_1 = os.path.join(path_head, "RenderProduct_Replicator_01")
-    if np.random.rand() < 0.5:
+    if random_swap and np.random.rand() < 0.5:
         render_prod_replic_path, render_prod_replic_path_1 = render_prod_replic_path_1, render_prod_replic_path
 
     rgb = load_im(os.path.join(render_prod_replic_path, "rgb/rgb_000000.png"))
@@ -380,6 +380,7 @@ def load_data_FoundationPose(data_dir, path_head, min_visib_frac, min_visib_px):
 
     target_R = np.array(states["objects"][obj_key]["rotation_matrix"]).reshape(3,3).astype(np.float32)
     target_t = np.array(states["objects"][obj_key]["translation"]).reshape(3).astype(np.float32)
+    target_s = np.array(states["objects"][obj_key]["scale"]).reshape(3).astype(np.float32)
 
     mask   = (seg   == obj_id).astype(np.uint8)
     mask_1 = (seg_1 == obj_id).astype(np.uint8)
@@ -401,6 +402,7 @@ def load_data_FoundationPose(data_dir, path_head, min_visib_frac, min_visib_px):
         "cam_param_1":cam_param_1,
         "target_R":target_R,
         "target_t":target_t,
+        "target_s":target_s,
         "obj_id":obj_id,
         "obj_key":obj_key
     }

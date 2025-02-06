@@ -3,6 +3,8 @@ import torch
 import torch.nn as nn
 
 from model_utils import pairwise_distance
+from vis_utils import visualize_two_sets_3d
+
 
 def compute_correspondence_loss(
     end_points,
@@ -17,6 +19,10 @@ def compute_correspondence_loss(
     CE = nn.CrossEntropyLoss(reduction ='none')
 
     gt_pts = (pts1-gt_t.unsqueeze(1))@gt_r
+    visualize_two_sets_3d(gt_pts.squeeze(0).detach().cpu().numpy(), pts2.squeeze(0).detach().cpu().numpy(),
+    f"FoundationPose-{loss_str}", s=1)
+    breakpoint()
+    
     dis_mat = torch.sqrt(pairwise_distance(gt_pts, pts2))
 
     dis1, label1 = dis_mat.min(2)

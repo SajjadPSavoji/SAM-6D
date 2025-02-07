@@ -403,7 +403,7 @@ class Dataset():
             # The scale is defined as half the maximum extent (largest dimension) of the bounding box.
             scale = max(xmax - xmin, ymax - ymin, zmax - zmin) / 2.0
 
-            return scale
+            return
 
 
         tem_scale = get_norm_info(obj_fpath)
@@ -413,8 +413,8 @@ class Dataset():
         print(1/orig_scale)
         print(target_s)
 
-        # tem1_pts *= orig_scale/(tem_scale*2)*target_s
-        # tem2_pts *= orig_scale/(tem_scale*2)*target_s
+        tem1_pts *= target_s
+        tem2_pts *= target_s
 
 
         # rotation aug

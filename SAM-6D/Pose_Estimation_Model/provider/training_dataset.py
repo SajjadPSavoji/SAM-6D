@@ -101,30 +101,18 @@ class Dataset():
         
         self.dataset_paths = []
 
-        # # get pathes to images for MegaPose train data
-        # for f in self.data_paths[:2]:
-        #     with open(os.path.join(self.data_dir, f, 'key_to_shard.json')) as fr:
-        #         key_shards = json.load(fr)
+        # get pathes to images for MegaPose train data
+        for f in self.data_paths[:2]:
+            with open(os.path.join(self.data_dir, f, 'key_to_shard.json')) as fr:
+                key_shards = json.load(fr)
 
-        #         for k in key_shards.keys():
-        #             path_name = os.path.join(f, "shard-" + f"{key_shards[k]:06d}", k)
-        #             self.dataset_paths.append(path_name)
+                for k in key_shards.keys():
+                    path_name = os.path.join(f, "shard-" + f"{key_shards[k]:06d}", k)
+                    self.dataset_paths.append(path_name)
 
         
-        # # get pathes to images for FoundationPose train data
-        # for f in self.data_paths[2:4]:
-        #     train_pbr_path = os.path.join(self.data_dir, f)
-        #     for shard in os.listdir(train_pbr_path):
-        #         shard_path = os.path.join(train_pbr_path, shard)
-        #         for scene in os.listdir(shard_path):
-        #             scene_path = os.path.join(shard_path, scene)
-        #             for subscene in os.listdir(scene_path):
-        #                 if os.path.isdir(os.path.join(scene_path, subscene)):
-        #                     path_name = os.path.join(f, shard, scene, subscene)
-        #                     self.dataset_paths.append(path_name)
-
-        # get pathes to images for MyPose train data
-        for f in self.data_paths[4:5]:
+        # get pathes to images for FoundationPose train data
+        for f in self.data_paths[2:4]:
             train_pbr_path = os.path.join(self.data_dir, f)
             for shard in os.listdir(train_pbr_path):
                 shard_path = os.path.join(train_pbr_path, shard)
@@ -132,10 +120,22 @@ class Dataset():
                     scene_path = os.path.join(shard_path, scene)
                     for subscene in os.listdir(scene_path):
                         if os.path.isdir(os.path.join(scene_path, subscene)):
-                            path_name = os.path.join(f, shard, scene, subscene, "RenderProduct_Replicator")
+                            path_name = os.path.join(f, shard, scene, subscene)
                             self.dataset_paths.append(path_name)
-                            path_name = os.path.join(f, shard, scene, subscene, "RenderProduct_Replicator_01")
-                            self.dataset_paths.append(path_name)
+
+        # # get pathes to images for MyPose train data
+        # for f in self.data_paths[4:5]:
+        #     train_pbr_path = os.path.join(self.data_dir, f)
+        #     for shard in os.listdir(train_pbr_path):
+        #         shard_path = os.path.join(train_pbr_path, shard)
+        #         for scene in os.listdir(shard_path):
+        #             scene_path = os.path.join(shard_path, scene)
+        #             for subscene in os.listdir(scene_path):
+        #                 if os.path.isdir(os.path.join(scene_path, subscene)):
+        #                     path_name = os.path.join(f, shard, scene, subscene, "RenderProduct_Replicator")
+        #                     self.dataset_paths.append(path_name)
+        #                     path_name = os.path.join(f, shard, scene, subscene, "RenderProduct_Replicator_01")
+        #                     self.dataset_paths.append(path_name)
 
 
         self.length = len(self.dataset_paths)
@@ -288,6 +288,7 @@ class Dataset():
 
 
     def read_data_MyPose(self, index):
+        raise NotImplementedError
         path_head = self.dataset_paths[index]
         dataset_auth = path_head.split('/')[0].split('-')[0]
         dataset_type = path_head.split('/')[0].split('-')[1]

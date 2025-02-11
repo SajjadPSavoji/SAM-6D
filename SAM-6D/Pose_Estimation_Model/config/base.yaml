@@ -67,13 +67,13 @@ train_dataset:
   min_pts_count: 32
   shift_range: 0.01
   rgb_mask_flag: True
-  augment_depth : False
-  augment_mask  : False
-  single_view_pr: 0.0
+  augment_depth : True
+  augment_mask  : True
+  single_view_pr: 0.5
 
 train_dataloader:
-  bs            : 1
-  num_workers   : 1
+  bs            : 100
+  num_workers   : 100
   shuffle       : True
   drop_last     : True
   pin_memory    : False

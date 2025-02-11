@@ -17,11 +17,10 @@ def compute_correspondence_loss(
     loss_str='coarse'
 ):
     CE = nn.CrossEntropyLoss(reduction ='none')
-
     gt_pts = (pts1-gt_t.unsqueeze(1))@gt_r
-    visualize_two_sets_3d(gt_pts.squeeze(0).detach().cpu().numpy(), pts2.squeeze(0).detach().cpu().numpy(),
-    f"FoundationPose-{loss_str}", s=1)
-    breakpoint()
+    # visualize_two_sets_3d(gt_pts.squeeze(0).detach().cpu().numpy(), pts2.squeeze(0).detach().cpu().numpy(),
+    # f"FoundationPose-{loss_str}", s=1)
+    # breakpoint()
     
     dis_mat = torch.sqrt(pairwise_distance(gt_pts, pts2))
 

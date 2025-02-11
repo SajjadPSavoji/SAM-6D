@@ -293,6 +293,7 @@ def load_json(path):
             data = json.load(file)
         return data
     except: # one of the jsons did not load properly
+        print(file)
         return None
 
 def load_npy(path):

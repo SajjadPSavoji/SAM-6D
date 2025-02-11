@@ -288,9 +288,12 @@ def combine_transformations(T, target_R, target_t):
 def load_json(path):
     if not os.path.isfile(path):
         return None
-    with open(path, 'r') as file:
-        data = json.load(file)
-    return data
+    try:
+        with open(path, 'r') as file:
+            data = json.load(file)
+        return data
+    except: # one of the jsons did not load properly
+        return None
 
 def load_npy(path):
     if not os.path.isfile(path):

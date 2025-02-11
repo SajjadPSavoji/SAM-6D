@@ -94,8 +94,8 @@ test_dataset:
 
 
 test_dataloader:
-  bs            : 32
-  num_workers   : 32
+  bs            : 1
+  num_workers   : 1
   shuffle       : False
   drop_last     : False
   pin_memory    : False
@@ -104,4 +104,4 @@ test_dataloader:
 rd_seed: 1
 training_epoch: 15
 iters_to_print: 50
-# pretrain_dir: checkpoints/sam-6d-pem-base.pth
+pretrain_dir: checkpoints/sam-6d-pem-base.pth

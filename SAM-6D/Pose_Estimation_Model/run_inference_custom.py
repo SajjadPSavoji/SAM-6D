@@ -306,9 +306,12 @@ if __name__ == "__main__":
     with open(os.path.join(f"{cfg.output_dir}/sam6d_results", 'detection_pem.json'), "w") as f:
         json.dump(detections, f)
 
+    n = 1  # Change this to any value you want
     print("=> visualizating ...")
     save_path = os.path.join(f"{cfg.output_dir}/sam6d_results", 'vis_pem.png')
-    valid_masks = pose_scores == pose_scores.max()
+    sorted_indices = np.argsort(pose_scores)[::-1][:n]
+    valid_masks = np.zeros_like(pose_scores, dtype=bool)
+    valid_masks[sorted_indices] = True
     K = input_data['K'].detach().cpu().numpy()[valid_masks]
     vis_img = visualize(img, pred_rot[valid_masks], pred_trans[valid_masks], model_points*1000, K, save_path)
     vis_img.save(save_path)

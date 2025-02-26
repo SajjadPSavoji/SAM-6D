@@ -6,6 +6,7 @@ from coarse_point_matching import CoarsePointMatching
 from fine_point_matching import FinePointMatching
 from transformer import GeometricStructureEmbedding
 from model_utils import sample_pts_feats
+from ransac_utils import prep_for_ransace, global_registration, refine_registration,add_pose_to_endpoints
 
 
 class Net(nn.Module):
@@ -23,6 +24,9 @@ class Net(nn.Module):
     def forward(self, end_points):
         dense_pm, dense_fm, dense_po, dense_fo, radius = self.feature_extraction(end_points)
 
+        # only support single instance inference right now
+        assert dense_pm.size()[0] == 1
+
         # pre-compute geometric embeddings for geometric transformer
         bg_point = torch.ones(dense_pm.size(0),1,3).float().to(dense_pm.device) * 100
 
@@ -35,20 +39,19 @@ class Net(nn.Module):
             dense_po, dense_fo, self.coarse_npoint, return_index=True
         )
         geo_embedding_o = self.geo_embedding(torch.cat([bg_point, sparse_po], dim=1))
+    
+        # global registeration with sparse points and sparse features
+        pcd_pm, pcd_fm = prep_for_ransace(sparse_pm[0].detach().cpu().numpy(), sparse_fm[0].detach().cpu().numpy())
+        pcd_po, pcd_fo = prep_for_ransace(sparse_po[0].detach().cpu().numpy(), sparse_fo[0].detach().cpu().numpy())
+        course_pose = global_registration(pcd_po, pcd_pm, pcd_fo, pcd_fm)
 
-        # coarse_point_matching
-        end_points = self.coarse_point_matching(
-            sparse_pm, sparse_fm, geo_embedding_m,
-            sparse_po, sparse_fo, geo_embedding_o,
-            radius, end_points,
-        )
+        # ICP with course points and course features
+        pcd_pm, pcd_fm = prep_for_ransace(dense_pm[0].detach().cpu().numpy(), dense_fm[0].detach().cpu().numpy())
+        pcd_po, pcd_fo = prep_for_ransace(dense_po[0].detach().cpu().numpy(), dense_fo[0].detach().cpu().numpy())
+        fine_pose = refine_registration(pcd_po, pcd_pm, pcd_fo, pcd_fm, course_pose)
 
-        # fine_point_matching
-        end_points = self.fine_point_matching(
-            dense_pm, dense_fm, geo_embedding_m, fps_idx_m,
-            dense_po, dense_fo, geo_embedding_o, fps_idx_o,
-            radius, end_points
-        )
+
+        end_points = add_pose_to_endpoints(end_points, course_pose, fine_pose, radius)
 
         return end_points
 

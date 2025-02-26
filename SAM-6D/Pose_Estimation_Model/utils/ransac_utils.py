@@ -33,6 +33,9 @@ def refine_registration(source, target, source_fpfh, target_fpfh, result_ransac,
     return result
 
 def prep_for_ransace(p, f):
+    # move to cpu
+    p = p[0].detach().cpu().numpy()
+    f = f[0].detach().cpu().numpy()
     # preparing format for open3d ransac
     pcd_dsdv = o3d.pipelines.registration.Feature()
     pcd_dsdv.data = f.T

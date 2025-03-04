@@ -45,17 +45,17 @@ class Net(nn.Module):
         )
         
 
-        # # # visualization
-        for i in range(end_points['init_R'].size(0)):
-            gt_r = end_points['init_R'][i:i+1]
-            gt_t = end_points['init_t'][i:i+1]
-            gt_pts = (sparse_pm-gt_t.unsqueeze(1))@gt_r
-            visualize_points_3d_two_sets(
-                gt_pts.squeeze(0).cpu().numpy(),
-                sparse_po.squeeze(0).cpu().numpy(), 
-                f"sparse_pm_hypo{i}", s=5)
-            break
-        breakpoint()
+        # # # # visualization
+        # for i in range(end_points['init_R'].size(0)):
+        #     gt_r = end_points['init_R'][i:i+1]
+        #     gt_t = end_points['init_t'][i:i+1]
+        #     gt_pts = (sparse_pm-gt_t.unsqueeze(1))@gt_r
+        #     visualize_points_3d_two_sets(
+        #         gt_pts.squeeze(0).cpu().numpy(),
+        #         sparse_po.squeeze(0).cpu().numpy(), 
+        #         f"sparse_pm_hypo{i}", s=5)
+        #     break
+        # breakpoint()
 
 
         # if self.training:

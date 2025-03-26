@@ -8,6 +8,7 @@ from transformer import GeometricStructureEmbedding
 from model_utils import sample_pts_feats
 from ransac_utils import prep_for_ransace, global_registration, refine_registration,add_pose_to_endpoints
 from gedi.gedi_utils import gedi_features
+from gedi.pointnet_utils import PointNetFeatures
 
 
 class Net(nn.Module):
@@ -21,6 +22,7 @@ class Net(nn.Module):
         self.geo_embedding = GeometricStructureEmbedding(cfg.geo_embedding)
         self.coarse_point_matching = CoarsePointMatching(cfg.coarse_point_matching)
         self.fine_point_matching = FinePointMatching(cfg.fine_point_matching)
+        self.pointnet_featurs = PointNetFeatures()
 
     def forward(self, end_points):
         dense_pm, dense_fm, dense_po, dense_fo, radius = self.feature_extraction(end_points)
@@ -42,10 +44,9 @@ class Net(nn.Module):
         geo_embedding_o = self.geo_embedding(torch.cat([bg_point, sparse_po], dim=1))
 
         # extract features with gedi
-        sparse_go, dense_go = gedi_features(sparse_po, dense_po, fps_idx_o)
-        sparse_gm, dense_gm = gedi_features(sparse_pm, dense_pm, fps_idx_m)
+        sparse_go, dense_go = self.pointnet_featurs(sparse_po, dense_po, fps_idx_o)
+        sparse_gm, dense_gm = self.pointnet_featurs(sparse_pm, dense_pm, fps_idx_m)
 
-    
         # global registeration with sparse points and sparse features
         pcd_pm, pcd_fm = prep_for_ransace(sparse_pm, sparse_gm)
         pcd_po, pcd_fo = prep_for_ransace(sparse_po, sparse_go)
@@ -60,4 +61,3 @@ class Net(nn.Module):
         end_points = add_pose_to_endpoints(end_points, course_pose, fine_pose, radius)
     
         return end_points
-

@@ -1,0 +1,27 @@
+
+# compilation and distribution
+__pycache__
+_ext
+*.pyc
+*.so
+build/
+dist/
+*.egg-info/
+
+# checkpoints
+*.pth
+*.pt
+
+# MacOS
+*.DS_Store
+
+# Pycharm editor settings
+.idea
+
+# VSCode editor settings
+.vscode
+
+# directories that should be ignored in general
+# but can be excluded explicitly
+/SAM-6D/Data/BOP
+/SAM-6D/Data/MegaPose-Training-Data
